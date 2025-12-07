@@ -76,8 +76,12 @@ WSGI_APPLICATION = 'Kamienica.wsgi.application'
 
 DATABASES = {
     'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+        'ENGINE': 'django.db.backends.mysql',
+        'NAME': 'kamienicaDB',  # Uzupełnij nazwę swojej bazy danych
+        'USER': 'root',      # Uzupełnij nazwę użytkownika bazy danych
+        'PASSWORD': 'Lukas.123',  # Uzupełnij hasło do bazy danych
+        'HOST': 'localhost',            # Domyślnie 'localhost' lub adres IP serwera bazy danych
+        'PORT': '3306',                 # Domyślny port MySQL to 3306
     }
 }
 
