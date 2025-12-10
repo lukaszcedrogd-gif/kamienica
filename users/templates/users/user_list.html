@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>User List</title>
+</head>
+<body>
+    <h1>User List</h1>
+    <a href="{% url 'add_user' %}">Dodaj nowego użytkownika</a>
+    <a href="{% url 'add_agreement' %}" style="margin-left: 20px;">Dodaj nową umowę</a>
+    <br><br>
+    <ul>
+        {% for user in users %}
+            <li>{{ user.name }} {{ user.lastname }}</li>
+        {% endfor %}
+    </ul>
+</body>
+</html>
