@@ -40,6 +40,7 @@ INSTALLED_APPS = [
     'Kamienica',
     'core.apps.CoreConfig',
     'users.apps.UsersConfig',
+    'finances.apps.FinancesConfig',
     'simple_history',
 ]
 
