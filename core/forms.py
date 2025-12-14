@@ -1,7 +1,7 @@
 import re
 from django import forms
 from django.core.exceptions import ValidationError
-from .models import User, Agreement
+from .models import User, Agreement, Lokal, MeterReading
 
 class UserForm(forms.ModelForm):
     email = forms.EmailField(
@@ -49,4 +49,24 @@ class AgreementForm(forms.ModelForm):
             'signing_date': DateInput(),
             'start_date': DateInput(),
             'end_date': DateInput(),
+        }
+
+class LokalForm(forms.ModelForm):
+    class Meta:
+        model = Lokal
+        fields = '__all__'
+        widgets = {
+            'unit_number': forms.TextInput(attrs={'class': 'form-control'}),
+            'size_sqm': forms.NumberInput(attrs={'class': 'form-control'}),
+            'description': forms.Textarea(attrs={'class': 'form-control', 'rows': 3}),
+            'meter_count_quantity': forms.NumberInput(attrs={'class': 'form-control'}),
+        }
+
+class MeterReadingForm(forms.ModelForm):
+    class Meta:
+        model = MeterReading
+        fields = ['reading_date', 'value']
+        widgets = {
+            'reading_date': DateInput(),
+            'value': forms.NumberInput(attrs={'class': 'form-control'}),
         }

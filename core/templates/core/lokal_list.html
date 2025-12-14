@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Lista Użytkowników</title>
+    <title>Lista Lokali</title>
     <style>
         body { font-family: sans-serif; margin: 2em; }
         table { border-collapse: collapse; width: 100%; }
@@ -22,10 +22,10 @@
     </style>
 </head>
 <body>
-    <h1>Lista Użytkowników</h1>
+    <h1>Lista Lokali</h1>
     <div class="top-nav">
-        <a href="{% url 'user-add' %}">Dodaj nowego użytkownika</a>
-        <a href="{% url 'lokal_list' %}">Lista lokali</a>
+        <a href="{% url 'lokal-add' %}">Dodaj nowy lokal</a>
+        <a href="{% url 'user_list' %}">Lista użytkowników</a>
         <a href="{% url 'agreement_list' %}">Lista umów</a>
         <a href="{% url 'meter_readings' %}">Odczyty liczników</a>
     </div>
@@ -33,23 +33,22 @@
     <table>
         <thead>
             <tr>
-                <th>Imię</th>
-                <th>Nazwisko</th>
-                <th>Email</th>
-                <th>Rola</th>
+                <th>Numer Lokalu</th>
+                <th>Metraż (m²)</th>
+                <th>Opis</th>
                 <th>Akcje</th>
             </tr>
         </thead>
         <tbody>
-            {% for user in users %}
+            {% for lokal in lokale %}
                 <tr>
-                    <td>{{ user.name }}</td>
-                    <td>{{ user.lastname }}</td>
-                    <td>{{ user.email }}</td>
-                    <td>{{ user.get_role_display }}</td>
+                    <td>{{ lokal.unit_number }}</td>
+                    <td>{{ lokal.size_sqm }}</td>
+                    <td>{{ lokal.description|default:"Brak opisu" }}</td>
                     <td class="actions">
-                        <a href="{% url 'user-edit' user.pk %}" class="edit-btn">Edytuj</a>
-                        <form method="post" action="{% url 'user-delete' user.pk %}" style="display:inline;">
+                        <a href="{% url 'lokal-detail' lokal.pk %}" class="details-btn">Szczegóły</a>
+                        <a href="{% url 'lokal-edit' lokal.pk %}" class="edit-btn">Edytuj</a>
+                        <form method="post" action="{% url 'lokal-delete' lokal.pk %}" style="display:inline;">
                             {% csrf_token %}
                             <button type="submit" class="delete-btn">Usuń</button>
                         </form>
@@ -57,11 +56,13 @@
                 </tr>
             {% empty %}
                 <tr>
-                    <td colspan="5">Brak aktywnych użytkowników w bazie.</td>
+                    <td colspan="4">Brak aktywnych lokali w bazie.</td>
                 </tr>
             {% endfor %}
         </tbody>
     </table>
+    <style>
+        .actions .details-btn { background-color: #17a2b8; color: white; }
+    </style>
 </body>
 </html>
-

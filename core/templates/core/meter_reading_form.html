@@ -13,12 +13,17 @@
 </head>
 <body>
     <h1>{{ title }}</h1>
+    <p>Lokal: {{ meter.lokal }}</p>
     <form method="post">
         {% csrf_token %}
         {{ form.as_p }}
-        <button type="submit">Zapisz</button>
+        <button type="submit">Zapisz odczyt</button>
     </form>
     <br>
-    <a href="{% url 'agreement_list' %}">Powrót do listy</a>
+    {# This should ideally point to the lokal_detail page. #}
+    {# We will create that later. For now, it goes to the list. #}
+    {% if meter.lokal %}
+    <a href="{% url 'lokal_list' %}">Powrót do listy lokali</a>
+    {% endif %}
 </body>
 </html>

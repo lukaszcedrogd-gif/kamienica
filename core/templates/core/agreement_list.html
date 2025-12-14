@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Lista Użytkowników</title>
+    <title>Lista Umów</title>
     <style>
         body { font-family: sans-serif; margin: 2em; }
         table { border-collapse: collapse; width: 100%; }
@@ -22,34 +22,36 @@
     </style>
 </head>
 <body>
-    <h1>Lista Użytkowników</h1>
+    <h1>Lista Umów</h1>
     <div class="top-nav">
-        <a href="{% url 'user-add' %}">Dodaj nowego użytkownika</a>
+        <a href="{% url 'agreement-add' %}">Dodaj nową umowę</a>
+        <a href="{% url 'user_list' %}">Lista użytkowników</a>
         <a href="{% url 'lokal_list' %}">Lista lokali</a>
-        <a href="{% url 'agreement_list' %}">Lista umów</a>
         <a href="{% url 'meter_readings' %}">Odczyty liczników</a>
     </div>
     <br>
     <table>
         <thead>
             <tr>
-                <th>Imię</th>
-                <th>Nazwisko</th>
-                <th>Email</th>
-                <th>Rola</th>
+                <th>Lokal</th>
+                <th>Użytkownik</th>
+                <th>Data rozpoczęcia</th>
+                <th>Data zakończenia</th>
+                <th>Czynsz</th>
                 <th>Akcje</th>
             </tr>
         </thead>
         <tbody>
-            {% for user in users %}
+            {% for agreement in agreements %}
                 <tr>
-                    <td>{{ user.name }}</td>
-                    <td>{{ user.lastname }}</td>
-                    <td>{{ user.email }}</td>
-                    <td>{{ user.get_role_display }}</td>
+                    <td>{{ agreement.lokal }}</td>
+                    <td>{{ agreement.user }}</td>
+                    <td>{{ agreement.start_date }}</td>
+                    <td>{{ agreement.end_date|default:"Brak" }}</td>
+                    <td>{{ agreement.rent_amount }} PLN</td>
                     <td class="actions">
-                        <a href="{% url 'user-edit' user.pk %}" class="edit-btn">Edytuj</a>
-                        <form method="post" action="{% url 'user-delete' user.pk %}" style="display:inline;">
+                        <a href="{% url 'agreement-edit' agreement.pk %}" class="edit-btn">Edytuj</a>
+                        <form method="post" action="{% url 'agreement-delete' agreement.pk %}" style="display:inline;">
                             {% csrf_token %}
                             <button type="submit" class="delete-btn">Usuń</button>
                         </form>
@@ -57,11 +59,10 @@
                 </tr>
             {% empty %}
                 <tr>
-                    <td colspan="5">Brak aktywnych użytkowników w bazie.</td>
+                    <td colspan="6">Brak aktywnych umów w bazie.</td>
                 </tr>
             {% endfor %}
         </tbody>
     </table>
 </body>
 </html>
-

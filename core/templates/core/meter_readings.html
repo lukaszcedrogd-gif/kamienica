@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Zbiorcze wprowadzanie odczytów liczników</title>
+    <style>
+        body { font-family: sans-serif; margin: 2em; }
+        table { border-collapse: collapse; width: 100%; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+        th { background-color: #f2f2f2; }
+        .actions a, .actions button {
+            margin-right: 5px;
+            padding: 5px 10px;
+            text-decoration: none;
+            border: 1px solid #ccc;
+            background-color: #f0f0f0;
+            color: #333;
+            cursor: pointer;
+        }
+        .actions .edit-btn { background-color: #ffc107; }
+        .actions .delete-btn { background-color: #dc3545; color: white; border-color: #dc3545; }
+        .top-nav a { margin-right: 15px; }
+    </style>
+</head>
+<body>
+    <h1>Zbiorcze wprowadzanie odczytów liczników</h1>
+    <div class="top-nav">
+        <a href="{% url 'user_list' %}">Lista użytkowników</a>
+        <a href="{% url 'lokal_list' %}">Lista lokali</a>
+        <a href="{% url 'agreement_list' %}">Lista umów</a>
+        <a href="{% url 'meter_readings' %}">Odczyty liczników</a>
+    </div>
+    <br>
+<form method="post">
+    {% csrf_token %}
+    
+    <div class="mb-3">
+        <label for="id_date" class="form-label">Data odczytu</label>
+        <input type="date" name="date" class="form-control" id="id_date" required>
+    </div>
+
+    <table class="table table-striped">
+        <thead>
+            <tr>
+                <th>Lokal</th>
+                <th>Licznik</th>
+                <th>Ostatni odczyt</th>
+                <th>Nowy odczyt</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for lokal in lokale %}
+                {% for meter in lokal.meters.all %}
+                    <tr>
+                        <td>{{ lokal.name }}</td>
+                        <td>{{ meter.serial_number }} ({{ meter.get_type_display }})</td>
+                        <td>
+                            {% with meter.readings.last as last_reading %}
+                                {{ last_reading.value|default:"Brak" }} ({{ last_reading.date|date:"Y-m-d"|default:"Brak" }})
+                            {% endwith %}
+                        </td>
+                        <td>
+                            <input type="number" step="0.01" name="meter_{{ meter.id }}" class="form-control">
+                        </td>
+                    </tr>
+                {% endfor %}
+            {% empty %}
+                <tr>
+                    <td colspan="4">Brak lokali do wyświetlenia.</td>
+                </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <button type="submit" class="btn btn-primary">Zapisz odczyty</button>
+</form>
+</body>
+</html>
