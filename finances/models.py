@@ -12,4 +12,4 @@ class Transaction(models.Model):
     transaction_type = models.CharField(max_length=7, choices=TRANSACTION_TYPE_CHOICES)
 
     def __str__(self):
-        return f"{self.date} - {self.description} - {self.amount} ({self.get_transaction_type_display()})"
+        return f"{self.date} - {self.description} - {self.amount}"
