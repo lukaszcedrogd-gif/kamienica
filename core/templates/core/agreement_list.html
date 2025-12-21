@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Lista Umów</title>
+    <style>
+        body { font-family: sans-serif; margin: 2em; }
+        table { border-collapse: collapse; width: 100%; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+        th { background-color: #f2f2f2; }
+        .actions a, .actions button {
+            margin-right: 5px;
+            padding: 5px 10px;
+            text-decoration: none;
+            border: 1px solid #ccc;
+            background-color: #f0f0f0;
+            color: #333;
+            cursor: pointer;
+        }
+        .actions .edit-btn { background-color: #ffc107; }
+        .actions .delete-btn { background-color: #dc3545; color: white; border-color: #dc3545; }
+        .top-nav a { margin-right: 15px; }
+    </style>
+</head>
+<body>
+    <h1>Lista Umów</h1>
+    <div class="top-nav">
+        <a href="{% url 'agreement-add' %}">Dodaj nową umowę</a>
+        <a href="{% url 'user_list' %}">Lista użytkowników</a>
+        <a href="{% url 'lokal_list' %}">Lista lokali</a>
+        <a href="{% url 'meter_readings' %}">Odczyty liczników</a>
+        <a href="{% url 'upload_csv' %}">Importuj transakcje</a>
+    </div>
+    <br>
+    <table>
+        <thead>
+            <tr>
+                <th>Lokal</th>
+                <th>Użytkownik</th>
+                <th>Data rozpoczęcia</th>
+                <th>Data zakończenia</th>
+                <th>Czynsz</th>
+                <th>Akcje</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for agreement in agreements %}
+                <tr>
+                    <td>{{ agreement.lokal }}</td>
+                    <td>{{ agreement.user }}</td>
+                    <td>{{ agreement.start_date }}</td>
+                    <td>{{ agreement.end_date|default:"Brak" }}</td>
+                    <td>{{ agreement.rent_amount }} PLN</td>
+                    <td class="actions">
+                        <a href="{% url 'agreement-edit' agreement.pk %}" class="edit-btn">Edytuj</a>
+                        <form method="post" action="{% url 'agreement-delete' agreement.pk %}" style="display:inline;">
+                            {% csrf_token %}
+                            <button type="submit" class="delete-btn">Usuń</button>
+                        </form>
+                    </td>
+                </tr>
+            {% empty %}
+                <tr>
+                    <td colspan="6">Brak aktywnych umów w bazie.</td>
+                </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</body>
+</html>

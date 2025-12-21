@@ -1,0 +1,15 @@
+[[source]]
+url = "https://pypi.org/simple"
+verify_ssl = true
+name = "pypi"
+
+[packages]
+django = "~=6.0.0"
+Pillow = "~=10.1.0"
+mysqlclient = "~=2.2.4"
+django-simple-history = "~=3.11.0"
+
+[dev-packages]
+
+[requires]
+python_version = "3.12"

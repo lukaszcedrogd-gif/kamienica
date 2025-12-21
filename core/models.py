@@ -1,0 +1,263 @@
+from django.db import models
+from django.utils import timezone
+from simple_history.models import HistoricalRecords
+from .validators import validate_pesel
+
+# --- Custom Manager for Soft Delete ---
+class ActiveManager(models.Manager):
+    def get_queryset(self):
+        return super().get_queryset().filter(is_active=True)
+
+# --- 1. Użytkownicy ---
+class User(models.Model):
+    ROLE_CHOICES = [
+        ('wlasciciel', 'Właściciel'),
+        ('lokator', 'Lokator'),
+        ('byly_lokator', 'Były Lokator'),
+        ('budynek', 'Budynek'),
+    ]
+   
+    name = models.CharField("Imię", max_length=100)
+    lastname = models.CharField("Nazwisko", max_length=100)
+    pesel = models.CharField(
+        "PESEL", 
+        max_length=11, 
+        unique=True, 
+        null=True, 
+        blank=True,
+        validators=[validate_pesel]
+    )
+    passport_number = models.CharField("Nr Paszportu", max_length=20, unique=True, null=True, blank=True)
+    email = models.EmailField("Adres e-mail", unique=True)
+    phone = models.CharField("Telefon", max_length=30, blank=True)
+    role = models.CharField("Rola", max_length=50, choices=ROLE_CHOICES)
+    is_active = models.BooleanField("Aktywny", default=True)
+
+    # Managers
+    objects = ActiveManager()
+    all_objects = models.Manager()
+
+    # History
+    history = HistoricalRecords()
+
+    class Meta:
+        verbose_name = "Użytkownik"
+        verbose_name_plural = "Użytkownicy"
+        
+    def __str__(self):
+        return f"{self.name} {self.lastname} ({self.get_role_display()})"
+
+# --- 2. Lokale ---
+class Lokal(models.Model):
+    unit_number = models.CharField("Numer mieszkania", max_length=10, unique=True, help_text="Np. '3a', '12'")
+    size_sqm = models.DecimalField("Wielkość (m²)", max_digits=5, decimal_places=2)
+    description = models.TextField("Opis zawartości", blank=True, help_text="Opis wyposażenia, stanu lokalu.")
+    meter_count_quantity = models.IntegerField("Ilość liczników (ogółem)", null=True, blank=True)
+    is_active = models.BooleanField("Aktywny", default=True)
+
+    # Managers
+    objects = ActiveManager()
+    all_objects = models.Manager()
+
+    # History
+    history = HistoricalRecords()
+
+    class Meta:
+        verbose_name = "Lokal"
+        verbose_name_plural = "Lokale"
+        
+    def __str__(self):
+        return f"Lokal nr {self.unit_number} ({self.size_sqm} m²)"
+
+# --- 3. Umowy ---
+class Agreement(models.Model):
+    TYPE_CHOICES = [
+        ('umowa', 'Umowa'),
+        ('aneks', 'Aneks'),
+    ]
+
+    user = models.ForeignKey(User, verbose_name="Użytkownik (Lokator)", on_delete=models.PROTECT, related_name="agreements")
+    lokal = models.ForeignKey(Lokal, verbose_name="Lokal", on_delete=models.PROTECT, related_name="agreements")
+    
+    signing_date = models.DateField("Data zawarcia")
+    start_date = models.DateField("Data rozpoczęcia najmu")
+    end_date = models.DateField("Data zakończenia najmu", null=True, blank=True)
+    
+    rent_amount = models.DecimalField("Kwota czynszu (nominalna)", max_digits=10, decimal_places=2)
+    deposit_amount = models.DecimalField("Kwota kaucji", max_digits=10, decimal_places=2, null=True, blank=True)
+    
+    type = models.CharField("Rodzaj", max_length=20, choices=TYPE_CHOICES, default='umowa')
+    old_agreement = models.ForeignKey(
+        'self', 
+        verbose_name="Stara umowa (dla aneksów)", 
+        on_delete=models.SET_NULL, 
+        null=True, 
+        blank=True, 
+        related_name="aneks_agreements"
+    )
+    
+    additional_info = models.TextField("Informacje dodatkowe", blank=True)
+    number_of_occupants = models.IntegerField("Liczba osób zamieszkujących")
+    is_active = models.BooleanField("Aktywny", default=True)
+
+    # Managers
+    objects = ActiveManager()
+    all_objects = models.Manager()
+
+    # History
+    history = HistoricalRecords()
+
+    class Meta:
+        verbose_name = "Umowa"
+        verbose_name_plural = "Umowy"
+        
+    def __str__(self):
+        return f"{self.get_type_display()} dla lokalu {self.lokal.unit_number} ({self.user})"
+
+# --- 4. Harmonogram Czynszów ---
+class RentSchedule(models.Model): 
+    agreement = models.ForeignKey(Agreement, verbose_name="Umowa", on_delete=models.CASCADE, related_name="rent_schedule")
+    year_month = models.DateField("Miesiąc płatności", help_text="Dotyczy miesiąca, np. 2025-01-01")
+    due_amount = models.DecimalField("Kwota do zapłaty", max_digits=10, decimal_places=2)
+    description = models.CharField("Opis", max_length=255, blank=True, help_text="Np. 'Korekta za połowę miesiąca'")
+
+    class Meta:
+        verbose_name = "Harmonogram Czynszu"
+        verbose_name_plural = "Harmonogramy Czynszów"
+        unique_together = ('agreement', 'year_month')
+
+    def __str__(self):
+        return f"{self.agreement} - {self.year_month.strftime('%Y-%m')} - {self.due_amount} PLN"
+
+# --- 5. Liczniki ---
+class Meter(models.Model):
+    TYPE_CHOICES = [
+        ('woda_zimna', 'Woda Zimna'),
+        ('woda_ciepla', 'Woda Ciepła'),
+        ('energia', 'Energia'),
+        ('gaz', 'Gaz'),
+        ('co', 'Centralne Ogrzewanie'),
+    ]
+    STATUS_CHOICES = [
+        ('aktywny', 'Aktywny'),
+        ('nieaktywny', 'Nieaktywny'),
+    ]
+
+    serial_number = models.CharField("Numer seryjny", max_length=50, unique=True)
+    type = models.CharField("Typ licznika", max_length=50, choices=TYPE_CHOICES)
+    status = models.CharField("Status", max_length=20, choices=STATUS_CHOICES, default='aktywny')
+    
+    lokal = models.ForeignKey(
+        Lokal, 
+        verbose_name="Lokal", 
+        on_delete=models.SET_NULL, 
+        null=True, 
+        blank=True, 
+        related_name="meters"
+    )
+    local_meter_number = models.IntegerField("Nr licznika w mieszkaniu", null=True, blank=True, help_text="Np. [1, 2] dla wody")
+
+    class Meta:
+        verbose_name = "Licznik"
+        verbose_name_plural = "Liczniki"
+        
+    def __str__(self):
+        if self.lokal:
+            return f"{self.get_type_display()} ({self.serial_number}) - Lokal {self.lokal.unit_number}"
+        return f"{self.get_type_display()} ({self.serial_number}) - Ogólny"
+    
+# --- 6. Odczyty Liczników ---
+class MeterReading(models.Model): 
+    meter = models.ForeignKey(Meter, verbose_name="Licznik", on_delete=models.CASCADE, related_name="readings")
+    reading_date = models.DateField("Data odczytu")
+    value = models.DecimalField("Wartość odczytu (m³, kWh)", max_digits=10, decimal_places=3)
+
+    class Meta:
+        verbose_name = "Odczyt Licznika"
+        verbose_name_plural = "Odczyty Liczników"
+        ordering = ['-reading_date']
+        
+    def __str__(self):
+        return f"Odczyt {self.meter.serial_number} z dnia {self.reading_date} = {self.value}"
+
+# --- 7. Koszty Stałe ---
+class FixedCost(models.Model):
+    COST_TYPE_CHOICES = [
+        ('wywoz_smieci', 'Wywóz śmieci'),
+        ('ubezpieczenie', 'Ubezpieczenie'),
+        ('podatek', 'Podatek od nieruchomości'),
+        ('energia_wspolna', 'Energia części wspólnych'),
+    ]
+
+    cost_type = models.CharField("Typ kosztu", max_length=100, choices=COST_TYPE_CHOICES)
+    cost_per_person = models.DecimalField("Koszt / osobę", max_digits=10, decimal_places=2, null=True, blank=True)
+    amount = models.DecimalField("Stała kwota", max_digits=10, decimal_places=2, null=True, blank=True)
+    effective_date = models.DateField("Data wejścia w życie", default=timezone.now)
+
+    class Meta:
+        verbose_name = "Koszt Stały"
+        verbose_name_plural = "Koszty Stałe"
+        
+    def __str__(self):
+        return f"{self.get_cost_type_display()} od {self.effective_date}"
+        
+# --- 8. Transakcje Finansowe ---
+class FinancialTransaction(models.Model):
+    TYPE_CHOICES = [
+        ('czynsz', 'Czynsz'),
+        ('media', 'Opłaty za media'),
+        ('kaucja', 'Kaucja'),
+        ('naprawy', 'Naprawy / Remonty'),
+        ('smieci', 'Wywóz śmieci'),
+        ('wspolnota', 'Potrzeby kamienicy'),
+        ('energia_klatka', 'Energia klatka'),
+        ('energia_m8', 'Energia m8'),
+        ('wyplata', 'Wypłaty'),
+        ('oplaty_bankowe', 'Opłaty bankowe'),
+        ('sprzatanie', 'Sprzątanie'),
+        ('inne', 'Inne'),
+    ]
+
+    user = models.ForeignKey(
+        User, 
+        verbose_name="Użytkownik", 
+        on_delete=models.SET_NULL, 
+        null=True, 
+        blank=True,
+        related_name="transactions"
+    )
+    lokal = models.ForeignKey(
+        Lokal, 
+        verbose_name="Lokal", 
+        on_delete=models.SET_NULL, 
+        null=True, 
+        blank=True,
+        related_name="transactions"
+    )
+    
+    amount = models.DecimalField("Kwota [+/-]", max_digits=10, decimal_places=2, help_text="Wpłata (przychód) to kwota dodatnia, wypłata (koszt) to kwota ujemna.")
+    posting_date = models.DateField("Data księgowania", default=timezone.now) 
+    type = models.CharField("Typ transakcji", max_length=50, choices=TYPE_CHOICES)
+    description = models.TextField("Opis", blank=True)
+
+    class Meta:
+        verbose_name = "Transakcja Finansowa"
+        verbose_name_plural = "Transakcje Finansowe"
+        ordering = ['-posting_date']
+
+    def __str__(self):
+        return f"{self.get_type_display()} {self.amount} PLN ({self.posting_date.strftime('%Y-%m-%d')})"
+        
+# --- 9. Fotografie Lokalu ---
+class LocalPhoto(models.Model):
+    lokal = models.ForeignKey(Lokal, verbose_name="Lokal", on_delete=models.CASCADE, related_name="photos")
+    image = models.ImageField(verbose_name="Zdjęcie", upload_to='lokale_photos/')
+    photo_date = models.DateField("Data wykonania zdjęcia", default=timezone.now)
+    description = models.CharField("Opis zdjęcia", max_length=255, blank=True)
+
+    class Meta:
+        verbose_name = "Zdjęcie Lokalu"
+        verbose_name_plural = "Zdjęcia Lokalu"
+        
+    def __str__(self):
+        return f"Zdjęcie dla {self.lokal.unit_number} z dnia {self.photo_date}"
