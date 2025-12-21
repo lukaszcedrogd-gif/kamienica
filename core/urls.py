@@ -8,6 +8,13 @@ urlpatterns = [
     path('agreements/', views.agreement_list, name='agreement_list'),
     path('meter_readings/', views.meter_readings_view, name='meter_readings'),
     path('upload_csv/', views.upload_csv, name='upload_csv'),
+    path('categorize_transactions/', views.categorize_transactions, name='categorize_transactions'),
+    path('clear_transactions/', views.clear_all_transactions, name='clear_all_transactions'),
+
+    # Rule Management
+    path('rules/', views.rule_list, name='rule_list'),
+    path('rules/<int:pk>/edit/', views.edit_rule, name='rule_edit'),
+    path('rules/<int:pk>/delete/', views.delete_rule, name='rule_delete'),
 
     # User URLs
     path('user/add/', views.create_user, name='user-add'),
@@ -27,4 +34,7 @@ urlpatterns = [
 
     # Meter Reading URLs
     path('meter/<int:meter_id>/add_reading/', views.add_meter_reading, name='add_meter_reading'),
+
+    # Transaction URLs
+    path('transaction/<int:pk>/edit/', views.edit_transaction, name='transaction_edit'),
 ]

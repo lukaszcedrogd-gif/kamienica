@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Potwierdź usunięcie</title>
+    <style>
+        body { font-family: sans-serif; margin: 2em; }
+        .container { max-width: 600px; margin: auto; padding: 2em; border: 1px solid #ccc; border-radius: 5px; }
+        .actions { margin-top: 2em; }
+        .actions button { padding: 10px 20px; border: none; border-radius: 3px; cursor: pointer; }
+        .actions .confirm-btn { background-color: #dc3545; color: white; }
+        .actions .cancel-link { margin-left: 1em; text-decoration: none; color: #007bff; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Potwierdź usunięcie wszystkich transakcji</h1>
+        <p><strong>Uwaga!</strong> Ta operacja jest nieodwracalna. Spowoduje usunięcie wszystkich zapisanych transakcji finansowych z bazy danych.</p>
+        <p>Czy na pewno chcesz kontynuować?</p>
+        <div class="actions">
+            <form method="post" style="display: inline;">
+                {% csrf_token %}
+                <button type="submit" class="confirm-btn">Tak, usuń wszystkie transakcje</button>
+            </form>
+            <a href="{% url 'upload_csv' %}" class="cancel-link">Anuluj</a>
+        </div>
+    </div>
+</body>
+</html>

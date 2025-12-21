@@ -1,11 +1,13 @@
 from django.shortcuts import render, redirect, get_object_or_404
 from django.core.exceptions import ValidationError
 from django.http import HttpResponse
+from django.forms import modelform_factory
+from django.contrib import messages
 import csv
 import io
 import datetime
 from decimal import Decimal, InvalidOperation
-from .models import User, Agreement, Lokal, Meter, MeterReading, FinancialTransaction
+from .models import User, Agreement, Lokal, Meter, MeterReading, FinancialTransaction, CategorizationRule
 from .forms import UserForm, AgreementForm, LokalForm, MeterReadingForm, CSVUploadForm
 
 
@@ -163,18 +165,64 @@ def delete_agreement(request, pk):
     return render(request, 'core/confirm_delete.html', {'object': obj, 'type': 'umowę', 'cancel_url': 'agreement_list'})
 
 # --- Financial Views ---
+def get_title_from_description(description):
+    description_lower = description.lower()
+    rules = CategorizationRule.objects.all()
+    for rule in rules:
+        keywords = [kw.strip().lower() for kw in rule.keywords.split(',') if kw.strip()]
+        if keywords and any(keyword in description_lower for keyword in keywords):
+            return rule.title
+    # Fallback to the old logic if no rule is found
+    if 'opłata za prowadzenie rachunku' in description_lower:
+        return 'oplata_bankowa'
+    if 'opłata mies. karta' in description_lower:
+        return 'oplata_bankowa'
+    if 'opłata za wywóz śmieci' in description_lower:
+        return 'wywoz_smieci'
+    if 'pzu' in description_lower:
+        return 'ubezpieczenie'
+    if 'aqua' in description_lower:
+        return 'oplata_za_wode'
+    if 'czynsz' in description_lower:
+        return 'czynsz'
+    if 'tauron' in description_lower:
+        return 'energia_klatka'
+    if 'podatek' in description_lower:
+        return 'podatek'
+    if 'pit' in description_lower:
+        return 'podatek'
+    return None
+
 def upload_csv(request):
+    transactions = FinancialTransaction.objects.all().order_by('-posting_date')
+
+    # Filtering
+    category_filter = request.GET.get('category')
+    date_from = request.GET.get('date_from')
+    date_to = request.GET.get('date_to')
+
+    if category_filter:
+        transactions = transactions.filter(title=category_filter)
+    if date_from:
+        transactions = transactions.filter(posting_date__gte=date_from)
+    if date_to:
+        transactions = transactions.filter(posting_date__lte=date_to)
+
     context = {
         'form': CSVUploadForm(),
-        'transactions': FinancialTransaction.objects.all().order_by('-posting_date'),
-        'upload_summary': None
+        'transactions': transactions,
+        'upload_summary': request.session.pop('upload_summary', None),
+        'rules_count': CategorizationRule.objects.count(),
+        'title_choices': FinancialTransaction.TITLE_CHOICES,
+        'current_category': category_filter,
+        'current_date_from': date_from,
+        'current_date_to': date_to,
     }
 
     if request.method == 'POST':
         form = CSVUploadForm(request.POST, request.FILES)
         if form.is_valid():
             csv_file = request.FILES['csv_file']
-            
             try:
                 decoded_file = csv_file.read().decode('windows-1250')
             except UnicodeDecodeError:
@@ -201,7 +249,8 @@ def upload_csv(request):
 
             processed_count = 0
             skipped_rows = []
-            row_num = 1 # Start after header
+            uncategorized_rows = []
+            row_num = 1
 
             for row in reader:
                 row_num += 1
@@ -220,26 +269,121 @@ def upload_csv(request):
 
                         amount = Decimal(amount_str)
                         description = row[3].strip()
+                        contractor = row[2].strip()
+                        transaction_id = row[7].strip()
+                        
+                        if not transaction_id:
+                            skipped_rows.append((row_num, 'Pusty numer transakcji'))
+                            continue
+                        
+                        title = get_title_from_description(description)
 
-                        FinancialTransaction.objects.update_or_create(
-                            posting_date=parsed_date,
-                            description=description,
-                            amount=amount,
-                            defaults={}
-                        )
-                        processed_count += 1
+                        transaction_data = {
+                            'posting_date': parsed_date.isoformat(),
+                            'description': description,
+                            'amount': str(amount),
+                            'contractor': contractor,
+                            'transaction_id': transaction_id,
+                        }
+
+                        if title:
+                            FinancialTransaction.objects.update_or_create(
+                                transaction_id=transaction_id,
+                                defaults={**transaction_data, 'title': title}
+                            )
+                            processed_count += 1
+                        else:
+                            uncategorized_rows.append(transaction_data)
 
                     except (ValueError, InvalidOperation, IndexError) as e:
                         skipped_rows.append((row_num, str(e)))
                         continue
                 else:
                     skipped_rows.append((row_num, 'Nieprawidłowa liczba kolumn'))
-
-            context['upload_summary'] = {
+            
+            request.session['upload_summary'] = {
                 'processed_count': processed_count,
                 'skipped_rows': skipped_rows
             }
-            # Update transactions list after upload
+
+            if uncategorized_rows:
+                request.session['uncategorized_rows'] = uncategorized_rows
+                return redirect('categorize_transactions')
+            
+            context['upload_summary'] = request.session.pop('upload_summary', None)
             context['transactions'] = FinancialTransaction.objects.all().order_by('-posting_date')
+            return redirect('upload_csv')
 
     return render(request, 'core/upload_csv.html', context)
+
+
+def categorize_transactions(request):
+    uncategorized_rows = request.session.get('uncategorized_rows', [])
+    
+    context = {
+        'transactions': uncategorized_rows,
+        'title_choices': FinancialTransaction.TITLE_CHOICES,
+        'upload_summary': request.session.get('upload_summary', {})
+    }
+    
+    return render(request, 'core/categorize_transactions.html', context)
+
+def clear_all_transactions(request):
+    if request.method == 'POST':
+        FinancialTransaction.objects.all().delete()
+        return redirect('upload_csv')
+    return render(request, 'core/confirm_clear_transactions.html')
+
+# --- Rule Management Views ---
+
+def rule_list(request):
+    rules = CategorizationRule.objects.all().order_by('keywords')
+    return render(request, 'core/rule_list.html', {'rules': rules})
+
+def edit_rule(request, pk):
+    rule = get_object_or_404(CategorizationRule, pk=pk)
+    RuleForm = modelform_factory(CategorizationRule, fields=['keywords', 'title'])
+    
+    if request.method == 'POST':
+        form = RuleForm(request.POST, instance=rule)
+        if form.is_valid():
+            form.save()
+            return redirect('rule_list')
+    else:
+        form = RuleForm(instance=rule)
+    return render(request, 'core/rule_form.html', {'form': form, 'title': f'Edytuj regułę: {rule.keywords}'})
+
+def delete_rule(request, pk):
+    rule = get_object_or_404(CategorizationRule, pk=pk)
+    if request.method == 'POST':
+        rule.delete()
+        return redirect('rule_list')
+    return render(request, 'core/confirm_delete.html', {'object': rule, 'type': 'regułę', 'cancel_url': 'rule_list'})
+
+def edit_transaction(request, pk):
+    transaction = get_object_or_404(FinancialTransaction, pk=pk)
+    
+    if request.method == 'POST':
+        new_category = request.POST.get('category')
+        create_rule = request.POST.get('create_rule') == 'on'
+        keyword = request.POST.get('keyword')
+
+        if new_category:
+            transaction.title = new_category
+            transaction.save()
+
+            if create_rule and keyword:
+                CategorizationRule.objects.get_or_create(
+                    keywords=keyword.strip(),
+                    defaults={'title': new_category}
+                )
+                messages.success(request, "Zaktualizowano transakcję i utworzono nową regułę.")
+            else:
+                messages.success(request, "Zaktualizowano transakcję.")
+            
+            return redirect('upload_csv')
+
+    return render(request, 'core/transaction_edit.html', {
+        'transaction': transaction,
+        'title_choices': FinancialTransaction.TITLE_CHOICES
+    })

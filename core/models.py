@@ -206,21 +206,6 @@ class FixedCost(models.Model):
 
 # --- 8. Transakcje Finansowe ---
 class FinancialTransaction(models.Model):
-    TYPE_CHOICES = [
-        ('czynsz', 'Czynsz'),
-        ('media', 'Opłaty za media'),
-        ('kaucja', 'Kaucja'),
-        ('naprawy', 'Naprawy / Remonty'),
-        ('smieci', 'Wywóz śmieci'),
-        ('wspolnota', 'Potrzeby kamienicy'),
-        ('energia_klatka', 'Energia klatka'),
-        ('energia_m8', 'Energia m8'),
-        ('wyplata', 'Wypłaty'),
-        ('oplaty_bankowe', 'Opłaty bankowe'),
-        ('sprzatanie', 'Sprzątanie'),
-        ('inne', 'Inne'),
-    ]
-
     user = models.ForeignKey(
         User, 
         verbose_name="Użytkownik", 
@@ -242,6 +227,30 @@ class FinancialTransaction(models.Model):
     amount = models.DecimalField("Kwota [+/-]", max_digits=10, decimal_places=2, help_text="Wpłata (przychód) to kwota dodatnia, wypłata (koszt) to kwota ujemna.")
     posting_date = models.DateField("Data księgowania", default=timezone.now) 
     description = models.TextField("Opis", blank=True)
+    contractor = models.CharField("Kontrahent", max_length=255, blank=True, null=True)
+    transaction_id = models.CharField("ID Transakcji", max_length=255, unique=True, null=True, blank=True)
+
+    TITLE_CHOICES = [
+        ('czynsz', 'czynsz'),
+        ('oplaty', 'opłaty'),
+        ('oplata_bankowa', 'opłata bankowa'),
+        ('energia_klatka', 'energia klatka'),
+        ('energia_m8', 'energię M8'),
+        ('na_potrzeby_kamienicy', 'na potrzeby kamienicy'),
+        ('naprawy_remonty', 'naprawy/remonty'),
+        ('oplata_za_wode', 'opłata za wodę'),
+        ('wywoz_smieci', 'wywóz śmieci'),
+        ('sprzatanie', 'sprzątanie'),
+        ('ogrodnik', 'ogrodnik'),
+        ('ubezpieczenie', 'ubezpieczenie'),
+        ('internet_telefon', 'internet/telefon'),
+        ('elektryk', 'elektryk'),
+        ('kominiarz', 'kominiarz'),
+        ('piece_co', 'piece co'),
+        ('podatek', 'podatek'),
+        ('oplata_nie_stanowiaca_kosztu', 'opłata nie stanowiąca kosztu'),
+    ]
+    title = models.CharField("Tytułem", max_length=100, choices=TITLE_CHOICES, blank=True, null=True)
 
     class Meta:
         verbose_name = "Transakcja Finansowa"
@@ -250,8 +259,20 @@ class FinancialTransaction(models.Model):
 
     def __str__(self):
         return f"Transakcja {self.amount} PLN ({self.posting_date.strftime('%Y-%m-%d')})"
+
+# --- 9. Reguły Kategoryzacji ---
+class CategorizationRule(models.Model):
+    keywords = models.CharField("Słowa kluczowe (oddzielone przecinkami)", max_length=255)
+    title = models.CharField("Tytuł", max_length=100, choices=FinancialTransaction.TITLE_CHOICES)
+
+    class Meta:
+        verbose_name = "Reguła kategoryzacji"
+        verbose_name_plural = "Reguły kategoryzacji"
+
+    def __str__(self):
+        return f"'{self.keywords}' -> '{self.get_title_display()}'"
         
-# --- 9. Fotografie Lokalu ---
+# --- 10. Fotografie Lokalu ---
 class LocalPhoto(models.Model):
     lokal = models.ForeignKey(Lokal, verbose_name="Lokal", on_delete=models.CASCADE, related_name="photos")
     image = models.ImageField(verbose_name="Zdjęcie", upload_to='lokale_photos/')
@@ -264,3 +285,5 @@ class LocalPhoto(models.Model):
         
     def __str__(self):
         return f"Zdjęcie dla {self.lokal.unit_number} z dnia {self.photo_date}"
+
+    

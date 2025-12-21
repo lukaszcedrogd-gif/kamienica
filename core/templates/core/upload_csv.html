@@ -25,6 +25,16 @@
         {{ form.as_p }}
         <button type="submit">Importuj</button>
     </form>
+    <br>
+    <a href="{% url 'clear_all_transactions' %}" style="display: inline-block; margin-top: 1em; padding: 10px 15px; background-color: #dc3545; color: white; text-decoration: none; border-radius: 3px;">Wyczyść wszystkie transakcje</a>
+
+    {% if messages %}
+        <div style="margin-top: 1em; padding: 10px; background-color: #d4edda; color: #155724; border: 1px solid #c3e6cb; border-radius: 3px;">
+            {% for message in messages %}
+                <p style="margin: 0;">{{ message }}</p>
+            {% endfor %}
+        </div>
+    {% endif %}
 
     {% if upload_summary %}
         <div class="upload-summary">
@@ -48,6 +58,33 @@
     <hr>
 
     <h2>Historia transakcji</h2>
+    
+    <form method="get" style="background-color: #f8f9fa; padding: 15px; border-radius: 5px; border: 1px solid #ddd; margin-bottom: 20px;">
+        <div style="display: flex; gap: 15px; align-items: flex-end; flex-wrap: wrap;">
+            <div>
+                <label for="category" style="display: block; margin-bottom: 5px;">Kategoria:</label>
+                <select name="category" id="category" style="padding: 5px; min-width: 150px;">
+                    <option value="">-- Wszystkie --</option>
+                    {% for code, name in title_choices %}
+                        <option value="{{ code }}" {% if current_category == code %}selected{% endif %}>{{ name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div>
+                <label for="date_from" style="display: block; margin-bottom: 5px;">Od daty:</label>
+                <input type="date" name="date_from" id="date_from" value="{{ current_date_from|default:'' }}" style="padding: 5px;">
+            </div>
+            <div>
+                <label for="date_to" style="display: block; margin-bottom: 5px;">Do daty:</label>
+                <input type="date" name="date_to" id="date_to" value="{{ current_date_to|default:'' }}" style="padding: 5px;">
+            </div>
+            <div>
+                <button type="submit" style="padding: 6px 15px; background-color: #007bff; color: white; border: none; cursor: pointer; border-radius: 3px;">Filtruj</button>
+                <a href="{% url 'upload_csv' %}" style="margin-left: 10px; color: #6c757d; text-decoration: none;">Wyczyść</a>
+            </div>
+        </div>
+    </form>
+
     <table>
         <thead>
             <tr>
@@ -55,7 +92,9 @@
                 <th>Opis</th>
                 <th>Przychód</th>
                 <th>Koszty</th>
-                
+                <th>nr faktury lub nazwa</th>
+                <th>tytułem</th>
+                <th>nr mieszkania</th>
             </tr>
         </thead>
         <tbody>
@@ -70,10 +109,16 @@
                         <td></td>
                         <td>{{ transaction.amount }}</td>
                     {% endif %}
+                    <td>{{ transaction.contractor }}</td>
+                    <td>
+                        {{ transaction.get_title_display }}
+                        <a href="{% url 'transaction_edit' transaction.pk %}" style="font-size: small; color: blue; margin-left: 5px;">[Edytuj]</a>
+                    </td>
+                    <td></td>
                 </tr>
             {% empty %}
                 <tr>
-                    <td colspan="4">Brak transakcji.</td>
+                    <td colspan="7">Brak transakcji.</td>
                 </tr>
             {% endfor %}
         </tbody>

@@ -1,0 +1,53 @@
+{% extends 'core/base.html' %}
+
+{% block content %}
+<div class="container mt-4">
+    <h2>Interaktywna Kategoryzacja</h2>
+    <p>Znaleziono transakcje wymagające przypisania kategorii.</p>
+
+    <div class="card">
+        <div class="card-header bg-warning">
+            Transakcja do skategoryzowania
+        </div>
+        <div class="card-body">
+            <p><strong>Data:</strong> {{ transaction.date|default:"-" }}</p>
+            <p><strong>Opis:</strong> {{ transaction.description }}</p>
+            <p><strong>Kwota:</strong> {{ transaction.amount }}</p>
+            
+            <hr>
+
+            <form method="post">
+                {% csrf_token %}
+                <div class="form-group">
+                    <label for="category">Wybierz kategorię:</label>
+                    <select name="category" id="category" class="form-control" required>
+                        <option value="">-- Wybierz --</option>
+                        {% for code, name in title_choices %}
+                            <option value="{{ code }}">{{ name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <div class="form-check mt-3">
+                    <input type="checkbox" class="form-check-input" id="create_rule" name="create_rule">
+                    <label class="form-check-label" for="create_rule"><strong>Zapamiętaj regułę</strong> (automatycznie kategoryzuj w przyszłości)</label>
+                </div>
+
+                <div class="form-group mt-2" id="keyword_group" style="display:none;">
+                    <label for="keyword">Słowo kluczowe (fragment opisu):</label>
+                    <input type="text" name="keyword" id="keyword" class="form-control" value="{{ transaction.description }}">
+                    <small class="form-text text-muted">Jeśli opis nowej transakcji będzie zawierał to słowo, kategoria zostanie przypisana automatycznie.</small>
+                </div>
+
+                <button type="submit" class="btn btn-primary mt-3">Zapisz i dalej</button>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+    document.getElementById('create_rule').addEventListener('change', function() {
+        document.getElementById('keyword_group').style.display = this.checked ? 'block' : 'none';
+    });
+</script>
+{% endblock %}

@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Sklasyfikuj transakcje</title>
+    <style>
+        body { font-family: sans-serif; margin: 2em; }
+        table { border-collapse: collapse; width: 100%; margin-top: 1em; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+        th { background-color: #f2f2f2; }
+        .top-nav a { margin-right: 15px; }
+        .transaction-row { margin-bottom: 2em; padding: 1em; border: 1px solid #ccc; border-radius: 5px; }
+        .transaction-details { margin-bottom: 1em; }
+    </style>
+</head>
+<body>
+    <h1>Sklasyfikuj transakcje</h1>
+    <p>Niektóre transakcje nie mogły zostać automatycznie sklasyfikowane. Proszę, przypisz im kategorię.</p>
+
+    {% if upload_summary %}
+        <div class="upload-summary">
+            <h3>Podsumowanie importu</h3>
+            <p>Przetworzono poprawnie: {{ upload_summary.processed_count }} wierszy.</p>
+            {% if upload_summary.skipped_rows %}
+                <p>Pominięto następujące wiersze:</p>
+                <ul>
+                    {% for row_num, reason in upload_summary.skipped_rows %}
+                        <li>Wiersz {{ row_num }}: {{ reason }}</li>
+                    {% endfor %}
+                </ul>
+            {% endif %}
+        </div>
+        <hr>
+    {% endif %}
+
+    {% if transactions %}
+        <form method="post" action="{% url 'save_categorization' %}">
+            {% csrf_token %}
+            
+            {% for transaction in transactions %}
+                <div class="transaction-row">
+                    <h4>Transakcja do sklasyfikowania</h4>
+                    <div class="transaction-details">
+                        <p><strong>Data:</strong> {{ transaction.posting_date }}</p>
+                        <p><strong>Opis:</strong> {{ transaction.description }}</p>
+                        <p><strong>Kontrahent:</strong> {{ transaction.contractor }}</p>
+                        <p><strong>Kwota:</strong> {{ transaction.amount }}</p>
+                    </div>
+
+                    <input type="hidden" name="transaction_id_{{ forloop.counter0 }}" value="{{ transaction.transaction_id }}">
+                    <input type="hidden" name="description_{{ forloop.counter0 }}" value="{{ transaction.description }}">
+                    <input type="hidden" name="posting_date_{{ forloop.counter0 }}" value="{{ transaction.posting_date }}">
+                    <input type="hidden" name="amount_{{ forloop.counter0 }}" value="{{ transaction.amount }}">
+                    <input type="hidden" name="contractor_{{ forloop.counter0 }}" value="{{ transaction.contractor }}">
+
+                    <label for="title_{{ forloop.counter0 }}">Kategoria:</label>
+                    <select name="title_{{ forloop.counter0 }}" id="title_{{ forloop.counter0 }}">
+                        {% for value, display in title_choices %}
+                            <option value="{{ value }}">{{ display }}</option>
+                        {% endfor %}
+                    </select>
+
+                    <label for="keywords_{{ forloop.counter0 }}" style="margin-left: 1em;">Słowa kluczowe (oddzielone przecinkami):</label>
+                    <input type="text" name="keywords_{{ forloop.counter0 }}" id="keywords_{{ forloop.counter0 }}" size="50">
+                </div>
+            {% endfor %}
+            <br>
+            <input type="hidden" name="transaction_count" value="{{ transactions|length }}">
+            <button type="submit">Zapisz wszystkie</button>
+        </form>
+    {% else %}
+        <p>Wszystkie transakcje zostały sklasyfikowane.</p>
+        <a href="{% url 'upload_csv' %}">Powrót do importu</a>
+    {% endif %}
+
+</body>
+</html>
