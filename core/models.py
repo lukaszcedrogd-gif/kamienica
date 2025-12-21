@@ -19,6 +19,9 @@ class User(models.Model):
    
     name = models.CharField("Imię", max_length=100)
     lastname = models.CharField("Nazwisko", max_length=100)
+    # UWAGA: unique=True na polach null=True może zachowywać się różnie w zależności od bazy danych.
+    # W PostgreSQL, NULLe nie są traktowane jako równe sobie, więc można mieć wiele NULLi.
+    # Warto rozważyć własną logikę walidacji unikalności dla wartości nie-NULL.
     pesel = models.CharField(
         "PESEL", 
         max_length=11, 
@@ -200,7 +203,7 @@ class FixedCost(models.Model):
         
     def __str__(self):
         return f"{self.get_cost_type_display()} od {self.effective_date}"
-        
+
 # --- 8. Transakcje Finansowe ---
 class FinancialTransaction(models.Model):
     TYPE_CHOICES = [
@@ -235,9 +238,9 @@ class FinancialTransaction(models.Model):
         related_name="transactions"
     )
     
+    
     amount = models.DecimalField("Kwota [+/-]", max_digits=10, decimal_places=2, help_text="Wpłata (przychód) to kwota dodatnia, wypłata (koszt) to kwota ujemna.")
     posting_date = models.DateField("Data księgowania", default=timezone.now) 
-    type = models.CharField("Typ transakcji", max_length=50, choices=TYPE_CHOICES)
     description = models.TextField("Opis", blank=True)
 
     class Meta:
@@ -246,7 +249,7 @@ class FinancialTransaction(models.Model):
         ordering = ['-posting_date']
 
     def __str__(self):
-        return f"{self.get_type_display()} {self.amount} PLN ({self.posting_date.strftime('%Y-%m-%d')})"
+        return f"Transakcja {self.amount} PLN ({self.posting_date.strftime('%Y-%m-%d')})"
         
 # --- 9. Fotografie Lokalu ---
 class LocalPhoto(models.Model):

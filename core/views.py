@@ -1,6 +1,13 @@
 from django.shortcuts import render, redirect, get_object_or_404
-from .models import User, Agreement, Lokal, Meter, MeterReading
-from .forms import UserForm, AgreementForm, LokalForm, MeterReadingForm
+from django.core.exceptions import ValidationError
+from django.http import HttpResponse
+import csv
+import io
+import datetime
+from decimal import Decimal, InvalidOperation
+from .models import User, Agreement, Lokal, Meter, MeterReading, FinancialTransaction
+from .forms import UserForm, AgreementForm, LokalForm, MeterReadingForm, CSVUploadForm
+
 
 # --- List Views ---
 
@@ -148,9 +155,91 @@ def delete_lokal(request, pk):
     return render(request, 'core/confirm_delete.html', {'object': obj, 'type': 'lokal', 'cancel_url': 'lokal_list'})
 
 def delete_agreement(request, pk):
-    obj = get_ot_object_or_404(Agreement, pk=pk)
+    obj = get_object_or_404(Agreement, pk=pk)
     if request.method == 'POST':
         obj.is_active = False
         obj.save()
         return redirect('agreement_list')
     return render(request, 'core/confirm_delete.html', {'object': obj, 'type': 'umowę', 'cancel_url': 'agreement_list'})
+
+# --- Financial Views ---
+def upload_csv(request):
+    context = {
+        'form': CSVUploadForm(),
+        'transactions': FinancialTransaction.objects.all().order_by('-posting_date'),
+        'upload_summary': None
+    }
+
+    if request.method == 'POST':
+        form = CSVUploadForm(request.POST, request.FILES)
+        if form.is_valid():
+            csv_file = request.FILES['csv_file']
+            
+            try:
+                decoded_file = csv_file.read().decode('windows-1250')
+            except UnicodeDecodeError:
+                csv_file.seek(0)
+                decoded_file = csv_file.read().decode('utf-8', errors='ignore')
+
+            io_string = io.StringIO(decoded_file)
+            
+            header_found = False
+            for row in csv.reader(io.StringIO(decoded_file), delimiter=';'):
+                if row and row[0] == "Data transakcji":
+                    header_found = True
+                    break
+            
+            if not header_found:
+                context['upload_summary'] = {'error': 'Nie znaleziono nagłówka "Data transakcji" w pliku CSV.'}
+                return render(request, 'core/upload_csv.html', context)
+
+            io_string = io.StringIO(decoded_file)
+            reader = csv.reader(io_string, delimiter=';')
+            for row in reader:
+                if row and row[0] == "Data transakcji":
+                    break
+
+            processed_count = 0
+            skipped_rows = []
+            row_num = 1 # Start after header
+
+            for row in reader:
+                row_num += 1
+                if not row or (row and row[0].startswith("Dokument ma charakter informacyjny")):
+                    break
+                
+                if len(row) > 8:
+                    try:
+                        date_str = row[0].strip()
+                        parsed_date = datetime.datetime.strptime(date_str, '%Y-%m-%d').date()
+                        
+                        amount_str = row[8].replace(',', '.').strip()
+                        if not amount_str:
+                            skipped_rows.append((row_num, 'Pusta kwota'))
+                            continue
+
+                        amount = Decimal(amount_str)
+                        description = row[3].strip()
+
+                        FinancialTransaction.objects.update_or_create(
+                            posting_date=parsed_date,
+                            description=description,
+                            amount=amount,
+                            defaults={}
+                        )
+                        processed_count += 1
+
+                    except (ValueError, InvalidOperation, IndexError) as e:
+                        skipped_rows.append((row_num, str(e)))
+                        continue
+                else:
+                    skipped_rows.append((row_num, 'Nieprawidłowa liczba kolumn'))
+
+            context['upload_summary'] = {
+                'processed_count': processed_count,
+                'skipped_rows': skipped_rows
+            }
+            # Update transactions list after upload
+            context['transactions'] = FinancialTransaction.objects.all().order_by('-posting_date')
+
+    return render(request, 'core/upload_csv.html', context)

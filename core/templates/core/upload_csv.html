@@ -26,6 +26,25 @@
         <button type="submit">Importuj</button>
     </form>
 
+    {% if upload_summary %}
+        <div class="upload-summary">
+            <h3>Podsumowanie importu</h3>
+            {% if upload_summary.error %}
+                <p style="color: red;">Błąd: {{ upload_summary.error }}</p>
+            {% else %}
+                <p>Przetworzono poprawnie: {{ upload_summary.processed_count }} wierszy.</p>
+                {% if upload_summary.skipped_rows %}
+                    <p>Pominięto następujące wiersze:</p>
+                    <ul>
+                        {% for row_num, reason in upload_summary.skipped_rows %}
+                            <li>Wiersz {{ row_num }}: {{ reason }}</li>
+                        {% endfor %}
+                    </ul>
+                {% endif %}
+            {% endif %}
+        </div>
+    {% endif %}
+
     <hr>
 
     <h2>Historia transakcji</h2>
@@ -36,7 +55,7 @@
                 <th>Opis</th>
                 <th>Przychód</th>
                 <th>Koszty</th>
-                <th>Typ</th>
+                
             </tr>
         </thead>
         <tbody>
@@ -51,11 +70,10 @@
                         <td></td>
                         <td>{{ transaction.amount }}</td>
                     {% endif %}
-                    <td>{{ transaction.get_type_display }}</td>
                 </tr>
             {% empty %}
                 <tr>
-                    <td colspan="5">Brak transakcji.</td>
+                    <td colspan="4">Brak transakcji.</td>
                 </tr>
             {% endfor %}
         </tbody>

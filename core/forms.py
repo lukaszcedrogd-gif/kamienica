@@ -70,3 +70,6 @@ class MeterReadingForm(forms.ModelForm):
             'reading_date': DateInput(),
             'value': forms.NumberInput(attrs={'class': 'form-control'}),
         }
+
+class CSVUploadForm(forms.Form):
+    csv_file = forms.FileField()

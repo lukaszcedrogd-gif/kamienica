@@ -7,6 +7,7 @@ urlpatterns = [
     path('lokale/', views.lokal_list, name='lokal_list'),
     path('agreements/', views.agreement_list, name='agreement_list'),
     path('meter_readings/', views.meter_readings_view, name='meter_readings'),
+    path('upload_csv/', views.upload_csv, name='upload_csv'),
 
     # User URLs
     path('user/add/', views.create_user, name='user-add'),
