@@ -92,7 +92,7 @@
                 <th>Opis</th>
                 <th>Przychód</th>
                 <th>Koszty</th>
-                <th>nr faktury lub nazwa</th>
+                <th>Dane kontrahenta</th>
                 <th>tytułem</th>
                 <th>nr mieszkania</th>
             </tr>
@@ -110,10 +110,7 @@
                         <td>{{ transaction.amount }}</td>
                     {% endif %}
                     <td>{{ transaction.contractor }}</td>
-                    <td>
-                        {{ transaction.get_title_display }}
-                        <a href="{% url 'transaction_edit' transaction.pk %}" style="font-size: small; color: blue; margin-left: 5px;">[Edytuj]</a>
-                    </td>
+                    <td>{{ transaction.get_title_display }}</td>
                     <td></td>
                 </tr>
             {% empty %}

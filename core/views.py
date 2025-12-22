@@ -165,14 +165,16 @@ def delete_agreement(request, pk):
     return render(request, 'core/confirm_delete.html', {'object': obj, 'type': 'umowę', 'cancel_url': 'agreement_list'})
 
 # --- Financial Views ---
-def get_title_from_description(description):
-    description_lower = description.lower()
+def get_title_from_description(description, contractor=''):
+    # Szukamy w opisie ORAZ w nazwie kontrahenta (nr faktury/nazwa)
+    search_text = (description + ' ' + contractor).lower()
     rules = CategorizationRule.objects.all()
     for rule in rules:
         keywords = [kw.strip().lower() for kw in rule.keywords.split(',') if kw.strip()]
-        if keywords and any(keyword in description_lower for keyword in keywords):
+        if keywords and any(keyword in search_text for keyword in keywords):
             return rule.title
     # Fallback to the old logic if no rule is found
+    description_lower = description.lower()
     if 'opłata za prowadzenie rachunku' in description_lower:
         return 'oplata_bankowa'
     if 'opłata mies. karta' in description_lower:
@@ -276,7 +278,7 @@ def upload_csv(request):
                             skipped_rows.append((row_num, 'Pusty numer transakcji'))
                             continue
                         
-                        title = get_title_from_description(description)
+                        title = get_title_from_description(description, contractor)
 
                         transaction_data = {
                             'posting_date': parsed_date.isoformat(),
@@ -327,6 +329,52 @@ def categorize_transactions(request):
     }
     
     return render(request, 'core/categorize_transactions.html', context)
+
+def save_categorization(request):
+    if request.method == 'POST':
+        try:
+            transaction_count = int(request.POST.get('transaction_count', 0))
+        except ValueError:
+            transaction_count = 0
+
+        for i in range(transaction_count):
+            idx = str(i)
+            transaction_id = request.POST.get(f'transaction_id_{idx}')
+            title = request.POST.get(f'title_{idx}')
+            keywords = request.POST.get(f'keywords_{idx}')
+            
+            # Pobieramy dane transakcji z ukrytych pól formularza
+            description = request.POST.get(f'description_{idx}')
+            posting_date = request.POST.get(f'posting_date_{idx}')
+            amount = request.POST.get(f'amount_{idx}')
+            contractor = request.POST.get(f'contractor_{idx}')
+
+            if transaction_id and title:
+                FinancialTransaction.objects.update_or_create(
+                    transaction_id=transaction_id,
+                    defaults={
+                        'description': description,
+                        'posting_date': posting_date,
+                        'amount': amount,
+                        'contractor': contractor,
+                        'title': title
+                    }
+                )
+
+                if keywords:
+                    CategorizationRule.objects.get_or_create(
+                        keywords=keywords.strip(),
+                        defaults={'title': title}
+                    )
+
+        # Czyścimy sesję
+        if 'uncategorized_rows' in request.session:
+            del request.session['uncategorized_rows']
+            
+        messages.success(request, "Pomyślnie skategoryzowano i zapisano transakcje.")
+        return redirect('upload_csv')
+    
+    return redirect('upload_csv')
 
 def clear_all_transactions(request):
     if request.method == 'POST':

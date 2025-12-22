@@ -9,6 +9,7 @@ urlpatterns = [
     path('meter_readings/', views.meter_readings_view, name='meter_readings'),
     path('upload_csv/', views.upload_csv, name='upload_csv'),
     path('categorize_transactions/', views.categorize_transactions, name='categorize_transactions'),
+    path('save_categorization/', views.save_categorization, name='save_categorization'),
     path('clear_transactions/', views.clear_all_transactions, name='clear_all_transactions'),
 
     # Rule Management
