@@ -6,6 +6,7 @@ from django.contrib import messages
 import csv
 import io
 import datetime
+import re
 from decimal import Decimal, InvalidOperation
 from .models import User, Agreement, Lokal, Meter, MeterReading, FinancialTransaction, CategorizationRule
 from .forms import UserForm, AgreementForm, LokalForm, MeterReadingForm, CSVUploadForm
@@ -32,7 +33,12 @@ def lokal_detail(request, pk):
     return render(request, 'core/lokal_detail.html', context)
 
 def agreement_list(request):
-    agreements = Agreement.objects.all() # .objects is the ActiveManager
+    agreements = list(Agreement.objects.all()) # .objects is the ActiveManager
+
+    def natural_sort_key(s):
+        return [int(text) if text.isdigit() else text.lower() for text in re.split('([0-9]+)', str(s))]
+
+    agreements.sort(key=lambda x: natural_sort_key(x.lokal))
     return render(request, 'core/agreement_list.html', {'agreements': agreements})
 
 def meter_readings_view(request):

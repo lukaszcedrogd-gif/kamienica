@@ -41,6 +41,10 @@ class UserForm(forms.ModelForm):
 class DateInput(forms.DateInput):
     input_type = 'date'
 
+    def __init__(self, attrs=None, format=None):
+        # Wymuszenie formatu YYYY-MM-DD, który jest wymagany przez input type="date" w HTML5
+        super().__init__(attrs=attrs, format=format or '%Y-%m-%d')
+
 class AgreementForm(forms.ModelForm):
     class Meta:
         model = Agreement
