@@ -8,6 +8,7 @@ from .models import (
     MeterReading,
     FixedCost,
     FinancialTransaction,
+    LokalAssignmentRule,
     LocalPhoto,
 )
 
@@ -19,4 +20,5 @@ admin.site.register(Meter)
 admin.site.register(MeterReading)
 admin.site.register(FixedCost)
 admin.site.register(FinancialTransaction)
+admin.site.register(LokalAssignmentRule)
 admin.site.register(LocalPhoto)

@@ -260,6 +260,10 @@ class FinancialTransaction(models.Model):
     def __str__(self):
         return f"Transakcja {self.amount} PLN ({self.posting_date.strftime('%Y-%m-%d')})"
 
+    @property
+    def is_split_payment(self):
+        return self.transaction_id and '_split' in self.transaction_id
+
 # --- 9. Reguły Kategoryzacji ---
 class CategorizationRule(models.Model):
     keywords = models.CharField("Słowa kluczowe (oddzielone przecinkami)", max_length=255)
@@ -272,7 +276,19 @@ class CategorizationRule(models.Model):
     def __str__(self):
         return f"'{self.keywords}' -> '{self.get_title_display()}'"
         
-# --- 10. Fotografie Lokalu ---
+# --- 10. Reguły Przypisania Lokalu (Nowe) ---
+class LokalAssignmentRule(models.Model):
+    keywords = models.CharField("Słowa kluczowe / Nr konta", max_length=255, help_text="Np. nazwisko, fragment opisu, numer konta bankowego")
+    lokal = models.ForeignKey(Lokal, verbose_name="Przypisany Lokal", on_delete=models.CASCADE)
+
+    class Meta:
+        verbose_name = "Reguła przypisania lokalu"
+        verbose_name_plural = "Reguły przypisania lokalu"
+
+    def __str__(self):
+        return f"'{self.keywords}' -> {self.lokal}"
+
+# --- 11. Fotografie Lokalu ---
 class LocalPhoto(models.Model):
     lokal = models.ForeignKey(Lokal, verbose_name="Lokal", on_delete=models.CASCADE, related_name="photos")
     image = models.ImageField(verbose_name="Zdjęcie", upload_to='lokale_photos/')

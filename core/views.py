@@ -8,7 +8,8 @@ import io
 import datetime
 import re
 from decimal import Decimal, InvalidOperation
-from .models import User, Agreement, Lokal, Meter, MeterReading, FinancialTransaction, CategorizationRule
+from django.db.models import Q
+from .models import User, Agreement, Lokal, Meter, MeterReading, FinancialTransaction, CategorizationRule, LokalAssignmentRule
 from .forms import UserForm, AgreementForm, LokalForm, MeterReadingForm, CSVUploadForm
 
 
@@ -201,6 +202,48 @@ def get_title_from_description(description, contractor=''):
         return 'podatek'
     return None
 
+def match_lokal_for_transaction(description, contractor, amount, posting_date):
+    """
+    Funkcja próbująca przypisać lokal do transakcji na podstawie:
+    1. Reguł zdefiniowanych przez użytkownika (LokalAssignmentRule) - np. nr konta, nazwiska.
+    2. Analizy tekstu pod kątem numeru lokalu (np. "m 4", "lok. 12").
+    3. Wyszukiwania najemcy w bazie danych (Imię + Nazwisko) i sprawdzenia aktywnej umowy.
+    """
+    # Jeśli to wypłata (kwota ujemna), zazwyczaj nie przypisujemy lokalu (chyba że zwrot kaucji, ale to rzadkość)
+    # Zgodnie z życzeniem pomijamy ujemne.
+    if amount < 0:
+        return None
+
+    search_text = (description + ' ' + contractor).lower()
+
+    # 1. Sprawdzenie Reguł (Słowa kluczowe / Nr konta)
+    # To pokrywa przypadek "nr konta z którego przyszedł przelew"
+    for rule in LokalAssignmentRule.objects.all():
+        if rule.keywords.lower() in search_text:
+            return rule.lokal
+
+    # 2. Analiza tekstowa (Regex) - szukanie "lok/m/nr" + liczba
+    # \b oznacza granicę słowa, więc nie złapie "blok" jako "lok"
+    match = re.search(r'\b(lok|m|mieszkanie|nr)\.?\s*(\d+[a-zA-Z]?)', search_text)
+    if match:
+        unit_num = match.group(2)
+        try:
+            return Lokal.objects.get(unit_number=unit_num)
+        except Lokal.DoesNotExist:
+            pass # Szukamy dalej
+
+    # 3. Analiza Umów (Osoby)
+    # Szukamy użytkowników, których Imię ORAZ Nazwisko występują w tekście
+    users = User.objects.filter(is_active=True, role__in=['lokator', 'wlasciciel'])
+    for user in users:
+        if user.lastname.lower() in search_text and user.name.lower() in search_text:
+            # Znaleziono osobę, sprawdzamy czy miała aktywną umowę w dniu transakcji
+            agreement = Agreement.objects.filter(user=user, is_active=True, start_date__lte=posting_date).filter(Q(end_date__gte=posting_date) | Q(end_date__isnull=True)).first()
+            if agreement:
+                return agreement.lokal
+
+    return None
+
 def upload_csv(request):
     transactions = FinancialTransaction.objects.all().order_by('-posting_date')
 
@@ -208,6 +251,7 @@ def upload_csv(request):
     category_filter = request.GET.get('category')
     date_from = request.GET.get('date_from')
     date_to = request.GET.get('date_to')
+    search_query = request.GET.get('search_query')
 
     if category_filter:
         transactions = transactions.filter(title=category_filter)
@@ -215,6 +259,11 @@ def upload_csv(request):
         transactions = transactions.filter(posting_date__gte=date_from)
     if date_to:
         transactions = transactions.filter(posting_date__lte=date_to)
+    if search_query:
+        transactions = transactions.filter(
+            Q(description__icontains=search_query) | 
+            Q(contractor__icontains=search_query)
+        )
 
     context = {
         'form': CSVUploadForm(),
@@ -225,6 +274,7 @@ def upload_csv(request):
         'current_category': category_filter,
         'current_date_from': date_from,
         'current_date_to': date_to,
+        'current_search_query': search_query,
     }
 
     if request.method == 'POST':
@@ -285,6 +335,7 @@ def upload_csv(request):
                             continue
                         
                         title = get_title_from_description(description, contractor)
+                        suggested_lokal = match_lokal_for_transaction(description, contractor, amount, parsed_date)
 
                         transaction_data = {
                             'posting_date': parsed_date.isoformat(),
@@ -297,10 +348,11 @@ def upload_csv(request):
                         if title:
                             FinancialTransaction.objects.update_or_create(
                                 transaction_id=transaction_id,
-                                defaults={**transaction_data, 'title': title}
+                                defaults={**transaction_data, 'title': title, 'lokal': suggested_lokal}
                             )
                             processed_count += 1
                         else:
+                            transaction_data['suggested_lokal_id'] = suggested_lokal.id if suggested_lokal else ''
                             uncategorized_rows.append(transaction_data)
 
                     except (ValueError, InvalidOperation, IndexError) as e:
@@ -327,11 +379,13 @@ def upload_csv(request):
 
 def categorize_transactions(request):
     uncategorized_rows = request.session.get('uncategorized_rows', [])
+    lokale = Lokal.objects.filter(is_active=True)
     
     context = {
         'transactions': uncategorized_rows,
         'title_choices': FinancialTransaction.TITLE_CHOICES,
-        'upload_summary': request.session.get('upload_summary', {})
+        'upload_summary': request.session.get('upload_summary', {}),
+        'lokale': lokale,
     }
     
     return render(request, 'core/categorize_transactions.html', context)
@@ -348,6 +402,8 @@ def save_categorization(request):
             transaction_id = request.POST.get(f'transaction_id_{idx}')
             title = request.POST.get(f'title_{idx}')
             keywords = request.POST.get(f'keywords_{idx}')
+            lokal_id = request.POST.get(f'lokal_id_{idx}')
+            lokal_keywords = request.POST.get(f'lokal_keywords_{idx}')
             
             # Pobieramy dane transakcji z ukrytych pól formularza
             description = request.POST.get(f'description_{idx}')
@@ -355,22 +411,31 @@ def save_categorization(request):
             amount = request.POST.get(f'amount_{idx}')
             contractor = request.POST.get(f'contractor_{idx}')
 
+            defaults = {
+                'description': description,
+                'posting_date': posting_date,
+                'amount': amount,
+                'contractor': contractor,
+                'title': title,
+                'lokal_id': lokal_id if lokal_id else None
+            }
+
             if transaction_id and title:
                 FinancialTransaction.objects.update_or_create(
                     transaction_id=transaction_id,
-                    defaults={
-                        'description': description,
-                        'posting_date': posting_date,
-                        'amount': amount,
-                        'contractor': contractor,
-                        'title': title
-                    }
+                    defaults=defaults
                 )
 
                 if keywords:
                     CategorizationRule.objects.get_or_create(
                         keywords=keywords.strip(),
                         defaults={'title': title}
+                    )
+                
+                if lokal_keywords and lokal_id:
+                    LokalAssignmentRule.objects.get_or_create(
+                        keywords=lokal_keywords.strip(),
+                        defaults={'lokal_id': lokal_id}
                     )
 
         # Czyścimy sesję
@@ -416,28 +481,150 @@ def delete_rule(request, pk):
 
 def edit_transaction(request, pk):
     transaction = get_object_or_404(FinancialTransaction, pk=pk)
+    lokale = Lokal.objects.filter(is_active=True)
     
     if request.method == 'POST':
         new_category = request.POST.get('category')
+        new_lokal_id = request.POST.get('lokal')
         create_rule = request.POST.get('create_rule') == 'on'
         keyword = request.POST.get('keyword')
+        
+        # Obsługa podziału transakcji
+        enable_split = request.POST.get('enable_split') == 'on'
+        split_amount_str = request.POST.get('split_amount')
+        split_lokal_id = request.POST.get('split_lokal')
+        remaining_amount_str = request.POST.get('remaining_amount')
+
+        if enable_split and split_amount_str and split_lokal_id and remaining_amount_str:
+            try:
+                split_amount = Decimal(split_amount_str.replace(',', '.'))
+                remaining_amount = Decimal(remaining_amount_str.replace(',', '.'))
+                
+                # Walidacja: czy suma kwot zgadza się z pierwotną kwotą
+                if abs(split_amount + remaining_amount - transaction.amount) > Decimal('0.01'):
+                    messages.error(request, f"Błąd: Suma kwot ({split_amount + remaining_amount}) nie zgadza się z pierwotną kwotą ({transaction.amount}).")
+                    return redirect('transaction-edit', pk=pk)
+                
+                # 1. Aktualizacja bieżącej transakcji (kwota pozostała)
+                transaction.amount = remaining_amount
+                
+                # 2. Utworzenie nowej transakcji (wydzielona część)
+                new_trans_id = f"{transaction.transaction_id}_split" if transaction.transaction_id else None
+                # Zabezpieczenie przed duplikatem ID
+                if new_trans_id and FinancialTransaction.objects.filter(transaction_id=new_trans_id).exists():
+                    import time
+                    new_trans_id = f"{new_trans_id}_{int(time.time())}"
+
+                FinancialTransaction.objects.create(
+                    transaction_id=new_trans_id,
+                    posting_date=transaction.posting_date,
+                    amount=split_amount,
+                    description=f"{transaction.description} (część wydzielona)",
+                    contractor=transaction.contractor,
+                    title=new_category if new_category else transaction.title, # Dziedziczy kategorię
+                    lokal_id=split_lokal_id
+                )
+                messages.success(request, f"Pomyślnie wydzielono kwotę {split_amount} dla drugiego lokalu.")
+
+            except (InvalidOperation, ValueError):
+                messages.error(request, "Nieprawidłowy format kwoty do podziału.")
+                return redirect('transaction-edit', pk=pk)
+        elif enable_split:
+            messages.error(request, "Wypełnij wszystkie pola podziału (kwoty i drugi lokal).")
+            return redirect('transaction-edit', pk=pk)
 
         if new_category:
             transaction.title = new_category
-            transaction.save()
+        
+        # Aktualizacja lokalu dla głównej transakcji (tej, która została po odjęciu kwoty)
+        if new_lokal_id:
+            transaction.lokal_id = new_lokal_id
+        elif new_lokal_id == "":
+            transaction.lokal = None
+            
+        transaction.save()
 
-            if create_rule and keyword:
+        if create_rule and keyword:
+            if new_category:
                 CategorizationRule.objects.get_or_create(
                     keywords=keyword.strip(),
                     defaults={'title': new_category}
                 )
-                messages.success(request, "Zaktualizowano transakcję i utworzono nową regułę.")
-            else:
-                messages.success(request, "Zaktualizowano transakcję.")
             
-            return redirect('upload_csv')
+            if new_lokal_id:
+                LokalAssignmentRule.objects.get_or_create(
+                    keywords=keyword.strip(),
+                    defaults={'lokal_id': new_lokal_id}
+                )
+            messages.success(request, "Zaktualizowano transakcję i utworzono nową regułę.")
+        else:
+            messages.success(request, "Zaktualizowano transakcję.")
+        
+        return redirect('upload_csv')
 
     return render(request, 'core/transaction_edit.html', {
         'transaction': transaction,
-        'title_choices': FinancialTransaction.TITLE_CHOICES
+        'title_choices': FinancialTransaction.TITLE_CHOICES,
+        'lokale': lokale,
+    })
+
+def delete_transaction(request, pk):
+    transaction = get_object_or_404(FinancialTransaction, pk=pk)
+    
+    # Próba znalezienia transakcji macierzystej (jeśli to był podział)
+    parent_transaction = None
+    if transaction.transaction_id and '_split' in transaction.transaction_id:
+        # Logika: ID podziału to zazwyczaj "PARENTID_split" lub "PARENTID_split_TIMESTAMP"
+        # Bierzemy wszystko przed ostatnim wystąpieniem "_split"
+        potential_parent_id = transaction.transaction_id.rsplit('_split', 1)[0]
+        parent_transaction = FinancialTransaction.objects.filter(transaction_id=potential_parent_id).first()
+
+    # Sprawdzenie, czy to jest transakcja macierzysta (czy posiada wydzielone części)
+    child_transactions = None
+    if transaction.transaction_id:
+        children = FinancialTransaction.objects.filter(transaction_id__startswith=f"{transaction.transaction_id}_split")
+        if children.exists():
+            child_transactions = children
+
+    if request.method == 'POST':
+        action = request.POST.get('action')
+        
+        if action == 'merge' and parent_transaction:
+            # Opcja "Cofnij podział": Dodaj kwotę z powrotem do rodzica i usuń tę transakcję
+            parent_transaction.amount += transaction.amount
+            parent_transaction.save()
+            transaction.delete()
+            messages.success(request, f"Cofnięto podział. Kwota {transaction.amount} została zwrócona do transakcji {parent_transaction.transaction_id}.")
+        
+        elif action == 'merge_children' and child_transactions:
+            # Opcja dla rodzica: Scal dzieci z powrotem do rodzica
+            total_restored = Decimal('0.00')
+            count = 0
+            for child in child_transactions:
+                total_restored += child.amount
+                count += 1
+            
+            transaction.amount += total_restored
+            transaction.save()
+            child_transactions.delete()
+            messages.success(request, f"Scalono {count} części. Łączna kwota {total_restored} PLN wróciła do transakcji głównej.")
+
+        elif action == 'delete_all' and child_transactions:
+            # Opcja dla rodzica: Usuń wszystko (rodzica i dzieci)
+            count = child_transactions.count() + 1
+            child_transactions.delete()
+            transaction.delete()
+            messages.success(request, f"Usunięto transakcję główną oraz {count-1} powiązanych części.")
+            
+        else:
+            # Zwykłe usuwanie
+            transaction.delete()
+            messages.success(request, "Transakcja została trwale usunięta.")
+            
+        return redirect('upload_csv')
+
+    return render(request, 'core/transaction_confirm_delete.html', {
+        'transaction': transaction,
+        'parent_transaction': parent_transaction,
+        'child_transactions': child_transactions
     })

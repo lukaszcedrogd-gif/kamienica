@@ -61,6 +61,22 @@
 
                     <label for="keywords_{{ forloop.counter0 }}" style="margin-left: 1em;">Słowa kluczowe (oddzielone przecinkami):</label>
                     <input type="text" name="keywords_{{ forloop.counter0 }}" id="keywords_{{ forloop.counter0 }}" size="50">
+
+                    <!-- Sekcja przypisywania lokalu -->
+                    <div style="margin-top: 10px; padding-top: 10px; border-top: 1px dashed #ccc;">
+                        <label for="lokal_id_{{ forloop.counter0 }}">Przypisz Lokal:</label>
+                        <select name="lokal_id_{{ forloop.counter0 }}" id="lokal_id_{{ forloop.counter0 }}">
+                            <option value="">-- Brak --</option>
+                            {% for lokal in lokale %}
+                                <option value="{{ lokal.id }}" {% if transaction.suggested_lokal_id == lokal.id %}selected{% endif %}>
+                                    {{ lokal.unit_number }}
+                                </option>
+                            {% endfor %}
+                        </select>
+
+                        <label for="lokal_keywords_{{ forloop.counter0 }}" style="margin-left: 1em;">Reguła Lokalu (np. nazwisko/konto):</label>
+                        <input type="text" name="lokal_keywords_{{ forloop.counter0 }}" id="lokal_keywords_{{ forloop.counter0 }}" size="30" placeholder="Wpisz, aby zapamiętać">
+                    </div>
                 </div>
             {% endfor %}
             <br>

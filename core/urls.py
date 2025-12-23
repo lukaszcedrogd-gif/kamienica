@@ -37,5 +37,6 @@ urlpatterns = [
     path('meter/<int:meter_id>/add_reading/', views.add_meter_reading, name='add_meter_reading'),
 
     # Transaction URLs
-    path('transaction/<int:pk>/edit/', views.edit_transaction, name='transaction_edit'),
+    path('transaction/<int:pk>/edit/', views.edit_transaction, name='transaction-edit'),
+    path('transaction/<int:pk>/delete/', views.delete_transaction, name='transaction-delete'),
 ]

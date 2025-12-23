@@ -1,7 +1,24 @@
-{% extends 'core/base.html' %}
-
-{% block content %}
-<div class="container mt-4">
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Edycja transakcji</title>
+    <style>
+        body { font-family: sans-serif; margin: 2em; }
+        .container { max-width: 800px; margin: auto; }
+        .card { border: 1px solid #ccc; border-radius: 5px; padding: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .form-group { margin-bottom: 15px; }
+        label { display: block; margin-bottom: 5px; font-weight: bold; }
+        input[type="text"], input[type="number"], select { width: 100%; padding: 8px; box-sizing: border-box; border: 1px solid #ccc; border-radius: 4px; }
+        .btn { padding: 10px 20px; text-decoration: none; border-radius: 5px; border: none; cursor: pointer; display: inline-block; font-size: 14px; }
+        .btn-primary { background-color: #007bff; color: white; }
+        .btn-secondary { background-color: #6c757d; color: white; margin-left: 10px; }
+        .split-section { margin-top: 25px; padding: 15px; background-color: #f8f9fa; border: 1px dashed #ccc; border-radius: 5px; }
+        .text-muted { color: #6c757d; font-size: 0.9em; }
+        .mt-3 { margin-top: 1rem; }
+    </style>
+</head>
+<body>
+<div class="container">
     <h2>Edycja transakcji</h2>
     
     <div class="card">
@@ -24,6 +41,45 @@
                     </select>
                 </div>
 
+                <div class="form-group mt-3">
+                    <label for="lokal">Przypisany Lokal:</label>
+                    <select name="lokal" id="lokal" class="form-control">
+                        <option value="">-- Brak --</option>
+                        {% for lokal in lokale %}
+                            <option value="{{ lokal.id }}" {% if transaction.lokal_id == lokal.id %}selected{% endif %}>{{ lokal.unit_number }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <!-- Sekcja podziału transakcji -->
+                <div class="split-section">
+                    <div class="form-check">
+                        <input type="checkbox" class="form-check-input" id="enable_split" name="enable_split">
+                        <label class="form-check-label" for="enable_split" style="display:inline;">Podziel transakcję na dwa lokale</label>
+                    </div>
+                    
+                    <div id="split_fields" style="display:none; margin-top: 15px;">
+                        <div class="form-group">
+                            <label for="split_amount">Kwota dla NOWEGO (drugiego) lokalu:</label>
+                            <input type="number" step="0.01" name="split_amount" id="split_amount" placeholder="Wpisz kwotę wydzielaną">
+                        </div>
+                        <div class="form-group">
+                            <label for="remaining_amount">Kwota dla BIEŻĄCEGO (pierwotnego) lokalu:</label>
+                            <input type="number" step="0.01" name="remaining_amount" id="remaining_amount" placeholder="Pozostała kwota">
+                            <small class="text-muted">Suma obu kwot musi wynosić: <strong>{{ transaction.amount }}</strong></small>
+                        </div>
+                        <div class="form-group">
+                            <label for="split_lokal">Drugi Lokal:</label>
+                            <select name="split_lokal" id="split_lokal">
+                                <option value="">-- Wybierz lokal --</option>
+                                {% for lokal in lokale %}
+                                    <option value="{{ lokal.id }}">{{ lokal.unit_number }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
                 <div class="form-check mt-3">
                     <input type="checkbox" class="form-check-input" id="create_rule" name="create_rule">
                     <label class="form-check-label" for="create_rule"><strong>Utwórz regułę dla przyszłych transakcji</strong></label>
@@ -38,6 +94,7 @@
                 <div class="mt-4">
                     <button type="submit" class="btn btn-primary">Zapisz</button>
                     <a href="{% url 'upload_csv' %}" class="btn btn-secondary">Anuluj</a>
+                    <a href="{% url 'transaction-delete' transaction.pk %}" class="btn btn-danger" style="float: right; background-color: #dc3545; border-color: #dc3545; color: white;">Usuń transakcję</a>
                 </div>
             </form>
         </div>
@@ -48,5 +105,29 @@
     document.getElementById('create_rule').addEventListener('change', function() {
         document.getElementById('keyword_group').style.display = this.checked ? 'block' : 'none';
     });
+
+    document.getElementById('enable_split').addEventListener('change', function() {
+        document.getElementById('split_fields').style.display = this.checked ? 'block' : 'none';
+    });
+
+    // Automatyczne przeliczanie kwot
+    const totalAmount = parseFloat("{{ transaction.amount|stringformat:'f' }}");
+    const splitInput = document.getElementById('split_amount');
+    const remainingInput = document.getElementById('remaining_amount');
+
+    splitInput.addEventListener('input', function() {
+        const val = parseFloat(this.value);
+        if (!isNaN(val)) {
+            remainingInput.value = (totalAmount - val).toFixed(2);
+        }
+    });
+
+    remainingInput.addEventListener('input', function() {
+        const val = parseFloat(this.value);
+        if (!isNaN(val)) {
+            splitInput.value = (totalAmount - val).toFixed(2);
+        }
+    });
 </script>
-{% endblock %}
+</body>
+</html>
