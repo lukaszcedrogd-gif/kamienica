@@ -63,7 +63,6 @@ class LokalForm(forms.ModelForm):
             'unit_number': forms.TextInput(attrs={'class': 'form-control'}),
             'size_sqm': forms.NumberInput(attrs={'class': 'form-control'}),
             'description': forms.Textarea(attrs={'class': 'form-control', 'rows': 3}),
-            'meter_count_quantity': forms.NumberInput(attrs={'class': 'form-control'}),
         }
 
 class MeterReadingForm(forms.ModelForm):

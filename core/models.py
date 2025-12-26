@@ -55,7 +55,6 @@ class Lokal(models.Model):
     unit_number = models.CharField("Numer mieszkania", max_length=10, unique=True, help_text="Np. '3a', '12'")
     size_sqm = models.DecimalField("Wielkość (m²)", max_digits=5, decimal_places=2)
     description = models.TextField("Opis zawartości", blank=True, help_text="Opis wyposażenia, stanu lokalu.")
-    meter_count_quantity = models.IntegerField("Ilość liczników (ogółem)", null=True, blank=True)
     is_active = models.BooleanField("Aktywny", default=True)
 
     # Managers
@@ -134,12 +133,12 @@ class RentSchedule(models.Model):
 
 # --- 5. Liczniki ---
 class Meter(models.Model):
-    TYPE_CHOICES = [
-        ('woda_zimna', 'Woda Zimna'),
-        ('woda_ciepla', 'Woda Ciepła'),
-        ('energia', 'Energia'),
-        ('gaz', 'Gaz'),
-        ('co', 'Centralne Ogrzewanie'),
+    METER_TYPE_CHOICES = [
+        ('cold_water', 'Woda zimna'),
+        ('hot_water', 'Woda ciepła'),
+        ('electricity', 'Energia elektryczna'),
+        ('gas', 'Gaz'),
+        ('heat', 'Energia cieplna'),
     ]
     STATUS_CHOICES = [
         ('aktywny', 'Aktywny'),
@@ -147,7 +146,7 @@ class Meter(models.Model):
     ]
 
     serial_number = models.CharField("Numer seryjny", max_length=50, unique=True)
-    type = models.CharField("Typ licznika", max_length=50, choices=TYPE_CHOICES)
+    type = models.CharField("Typ licznika", max_length=50, choices=METER_TYPE_CHOICES)
     status = models.CharField("Status", max_length=20, choices=STATUS_CHOICES, default='aktywny')
     
     lokal = models.ForeignKey(

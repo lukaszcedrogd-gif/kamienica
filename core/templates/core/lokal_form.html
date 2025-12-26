@@ -1,24 +1,76 @@
-<!DOCTYPE html>
-<html>
-<head>
-    <title>{{ title }}</title>
-    <style>
-        body { font-family: sans-serif; margin: 2em; }
-        form p { margin-bottom: 1em; }
-        label { display: block; margin-bottom: 0.25em; }
-        input, select, textarea { width: 100%; padding: 0.5em; box-sizing: border-box; }
-        button { padding: 0.75em 1.5em; background-color: #007bff; color: white; border: none; cursor: pointer; }
-        .errorlist { color: red; list-style-type: none; padding: 0; }
-    </style>
-</head>
-<body>
-    <h1>{{ title }}</h1>
+{% extends "core/base.html" %}
+
+{% block title %}{{ title }}{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <h1 class="mb-4">{{ title }}</h1>
+
     <form method="post">
         {% csrf_token %}
-        {{ form.as_p }}
-        <button type="submit">Zapisz</button>
+        <div class="card shadow-sm">
+            <div class="card-header">
+                Dane lokalu
+            </div>
+            <div class="card-body">
+                {% for field in form %}
+                    <div class="form-group mb-3">
+                        <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+                        {{ field }}
+                        {% if field.help_text %}
+                            <small class="form-text text-muted">{{ field.help_text }}</small>
+                        {% endif %}
+                        {% for error in field.errors %}
+                            <div class="alert alert-danger mt-1">{{ error }}</div>
+                        {% endfor %}
+                    </div>
+                {% endfor %}
+            </div>
+        </div>
+
+        <div class="card shadow-sm mt-4">
+            <div class="card-header">
+                Zarządzaj licznikami
+            </div>
+            <div class="card-body">
+                <h5>Liczniki przypisane do tego lokalu</h5>
+                {% if assigned_meters %}
+                    <p>Zaznacz, które liczniki mają pozostać przypisane. Odznaczenie spowoduje odpięcie licznika od lokalu.</p>
+                    {% for meter in assigned_meters %}
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" name="meters" value="{{ meter.id }}" id="meter_{{ meter.id }}" checked>
+                            <label class="form-check-label" for="meter_{{ meter.id }}">
+                                {{ meter }} (Status: {{ meter.get_status_display }})
+                            </label>
+                        </div>
+                    {% endfor %}
+                {% else %}
+                    <p class="text-muted">Brak liczników przypisanych do tego lokalu.</p>
+                {% endif %}
+                
+                <hr class="my-4">
+
+                <h5>Dostępne liczniki (nieprzypisane)</h5>
+                {% if unassigned_meters %}
+                    <p>Zaznacz, które liczniki chcesz przypisać do tego lokalu.</p>
+                    {% for meter in unassigned_meters %}
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" name="meters" value="{{ meter.id }}" id="meter_{{ meter.id }}">
+                            <label class="form-check-label" for="meter_{{ meter.id }}">
+                                {{ meter }}
+                            </label>
+                        </div>
+                    {% endfor %}
+                {% else %}
+                    <p class="text-muted">Brak dostępnych liczników do przypisania.</p>
+                {% endif %}
+            </div>
+        </div>
+
+        <div class="mt-4">
+            <button type="submit" class="btn btn-primary">Zapisz zmiany</button>
+            <a href="{% url 'lokal_list' %}" class="btn btn-secondary">Anuluj</a>
+        </div>
     </form>
-    <br>
-    <a href="{% url 'lokal_list' %}">Powrót do listy</a>
-</body>
-</html>
+</div>
+{% endblock %}

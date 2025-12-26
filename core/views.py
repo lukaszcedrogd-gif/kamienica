@@ -11,6 +11,8 @@ from decimal import Decimal, InvalidOperation
 from django.db.models import Q
 from .models import User, Agreement, Lokal, Meter, MeterReading, FinancialTransaction, CategorizationRule, LokalAssignmentRule
 from .forms import UserForm, AgreementForm, LokalForm, MeterReadingForm, CSVUploadForm
+from .models import Lokal, Meter
+from .forms import LokalForm
 
 
 # --- List Views ---
@@ -77,11 +79,77 @@ def create_lokal(request):
     if request.method == 'POST':
         form = LokalForm(request.POST)
         if form.is_valid():
-            form.save()
+            lokal = form.save()
+            
+            # Obsługa przypisywania liczników
+            meter_ids = request.POST.getlist('meters')
+            
+            # Przypisz wybrane liczniki do nowo utworzonego lokalu
+            if meter_ids:
+                meters_to_assign = Meter.objects.filter(id__in=meter_ids)
+                for meter in meters_to_assign:
+                    meter.lokal = lokal
+                    meter.save()
+            
+            messages.success(request, f'Lokal {lokal.unit_number} został utworzony.')
             return redirect('lokal_list')
     else:
         form = LokalForm()
-    return render(request, 'core/lokal_form.html', {'form': form, 'title': 'Dodaj Nowy Lokal'})
+
+    # Pobierz liczniki nieprzypisane do żadnego lokalu (do wyboru)
+    unassigned_meters = Meter.objects.filter(lokal__isnull=True)
+    
+    context = {
+        'form': form,
+        'title': 'Dodaj nowy lokal',
+        'unassigned_meters': unassigned_meters,
+        'assigned_meters': [], # Nowy lokal nie ma jeszcze liczników
+    }
+    return render(request, 'core/lokal_form.html', context)
+
+def edit_lokal(request, pk):
+    lokal = get_object_or_404(Lokal, pk=pk)
+    
+    if request.method == 'POST':
+        form = LokalForm(request.POST, instance=lokal)
+        if form.is_valid():
+            lokal = form.save()
+            
+            # Obsługa liczników
+            meter_ids = request.POST.getlist('meters')
+            
+            # 1. Odepnij liczniki, które były przypisane do tego lokalu, ale zostały odznaczone
+            # Szukamy liczników tego lokalu, których ID NIE ma na liście z formularza
+            meters_to_detach = Meter.objects.filter(lokal=lokal).exclude(id__in=meter_ids)
+            for meter in meters_to_detach:
+                meter.lokal = None
+                meter.save()
+            
+            # 2. Przypisz zaznaczone liczniki (lub upewnij się, że są przypisane)
+            if meter_ids:
+                meters_to_assign = Meter.objects.filter(id__in=meter_ids)
+                for meter in meters_to_assign:
+                    meter.lokal = lokal
+                    meter.save()
+            
+            messages.success(request, f'Lokal {lokal.unit_number} został zaktualizowany.')
+            return redirect('lokal_list')
+    else:
+        form = LokalForm(instance=lokal)
+
+    # Liczniki aktualnie przypisane do tego lokalu
+    assigned_meters = Meter.objects.filter(lokal=lokal)
+    
+    # Liczniki wolne (nieprzypisane)
+    unassigned_meters = Meter.objects.filter(lokal__isnull=True)
+
+    context = {
+        'form': form,
+        'title': f'Edycja lokalu {lokal.unit_number}',
+        'assigned_meters': assigned_meters,
+        'unassigned_meters': unassigned_meters,
+    }
+    return render(request, 'core/lokal_form.html', context)
 
 def create_agreement(request):
     if request.method == 'POST':
@@ -123,16 +191,16 @@ def edit_user(request, pk):
         form = UserForm(instance=user)
     return render(request, 'core/user_form.html', {'form': form, 'title': f'Edytuj użytkownika: {user}'})
 
-def edit_lokal(request, pk):
-    lokal = get_object_or_404(Lokal, pk=pk)
+def edit_agreement(request, pk):
+    agreement = get_object_or_404(Agreement, pk=pk)
     if request.method == 'POST':
-        form = LokalForm(request.POST, instance=lokal)
+        form = AgreementForm(request.POST, instance=agreement)
         if form.is_valid():
             form.save()
-            return redirect('lokal_list')
+            return redirect('agreement_list')
     else:
-        form = LokalForm(instance=lokal)
-    return render(request, 'core/lokal_form.html', {'form': form, 'title': f'Edytuj lokal: {lokal}'})
+        form = AgreementForm(instance=agreement)
+    return render(request, 'core/agreement_form.html', {'form': form, 'title': f'Edytuj umowę: {agreement}'})
 
 def edit_agreement(request, pk):
     agreement = get_object_or_404(Agreement, pk=pk)
@@ -628,3 +696,34 @@ def delete_transaction(request, pk):
         'parent_transaction': parent_transaction,
         'child_transactions': child_transactions
     })
+
+def meter_consumption_report(request):
+    meters = Meter.objects.select_related('lokal').prefetch_related('readings').all()
+    consumption_data = []
+
+    for meter in meters:
+        readings = meter.readings.all()[:2]  # Pobieramy 2 najnowsze odczyty
+        
+        consumption = None
+        latest_reading = None
+        previous_reading = None
+
+        if len(readings) == 2:
+            latest_reading = readings[0]
+            previous_reading = readings[1]
+            consumption = latest_reading.value - previous_reading.value
+        elif len(readings) == 1:
+            latest_reading = readings[0]
+
+        consumption_data.append({
+            'meter': meter,
+            'latest_reading': latest_reading,
+            'previous_reading': previous_reading,
+            'consumption': consumption,
+        })
+
+    context = {
+        'consumption_data': consumption_data,
+        'title': 'Raport Zużycia Mediów'
+    }
+    return render(request, 'core/meter_consumption_report.html', context)

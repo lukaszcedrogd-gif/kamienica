@@ -7,6 +7,7 @@ urlpatterns = [
     path('lokale/', views.lokal_list, name='lokal_list'),
     path('agreements/', views.agreement_list, name='agreement_list'),
     path('meter_readings/', views.meter_readings_view, name='meter_readings'),
+    path('meter-consumption-report/', views.meter_consumption_report, name='meter-consumption-report'),
     path('upload_csv/', views.upload_csv, name='upload_csv'),
     path('categorize_transactions/', views.categorize_transactions, name='categorize_transactions'),
     path('save_categorization/', views.save_categorization, name='save_categorization'),

@@ -28,6 +28,7 @@
         <a href="{% url 'lokal_list' %}">Lista lokali</a>
         <a href="{% url 'agreement_list' %}">Lista umów</a>
         <a href="{% url 'meter_readings' %}">Odczyty liczników</a>
+        <a href="{% url 'meter-consumption-report' %}" style="font-weight: bold; color: #007bff;">Zobacz Raport Zużycia &raquo;</a>
         <a href="{% url 'upload_csv' %}">Importuj transakcje</a>
     </div>
     <br>
@@ -52,11 +53,11 @@
             {% for lokal in lokale %}
                 {% for meter in lokal.meters.all %}
                     <tr>
-                        <td>{{ lokal.name }}</td>
+                        <td>{{ lokal.unit_number }}</td>
                         <td>{{ meter.serial_number }} ({{ meter.get_type_display }})</td>
                         <td>
-                            {% with meter.readings.last as last_reading %}
-                                {{ last_reading.value|default:"Brak" }} ({{ last_reading.date|date:"Y-m-d"|default:"Brak" }})
+                            {% with meter.readings.first as last_reading %}
+                                {{ last_reading.value|default:"Brak" }} (z dnia: {{ last_reading.reading_date|date:"Y-m-d"|default:"Brak" }})
                             {% endwith %}
                         </td>
                         <td>
