@@ -734,35 +734,63 @@ def meter_consumption_report(request):
 # --- Fixed Costs View ---
 
 def fixed_costs_view(request):
-    # Pobierz najnowszą, aktywną regułę dla wywozu śmieci, która jest liczona od osoby
-    waste_rule = FixedCost.objects.filter(
-        name__icontains="śmieci", 
+    # Get all waste rules, ordered by date, to find the correct one for each month
+    waste_rules = FixedCost.objects.filter(
+        name__icontains="śmieci",
         calculation_method='per_person'
-    ).order_by('-effective_date').first()
+    ).order_by('-effective_date')
+
+    if not waste_rules.exists():
+        return render(request, 'core/fixed_costs_list.html', {'waste_rule': None, 'title': 'Błąd: Brak reguł kosztów'})
 
     calculated_costs = []
-    total_cost = 0
+    grand_total_cost = Decimal('0.00')
+    today = date.today()
 
-    if waste_rule:
-        # Pobierz wszystkie aktywne umowy
-        agreements = Agreement.objects.filter(is_active=True).select_related('lokal')
+    agreements = Agreement.objects.filter(is_active=True).select_related('lokal', 'user')
+
+    for agreement in agreements:
+        agreement_total_cost = Decimal('0.00')
         
-        for agreement in agreements:
-            cost = agreement.number_of_occupants * waste_rule.amount
+        # Start from the beginning of the agreement's start month
+        current_month_start = agreement.start_date.replace(day=1)
+        months_counted = 0
+
+        while current_month_start <= today:
+            # Find the rule that was active in this month
+            active_rule_for_month = None
+            for rule in waste_rules:
+                if rule.effective_date <= current_month_start:
+                    active_rule_for_month = rule
+                    break
+
+            if active_rule_for_month:
+                monthly_cost = agreement.number_of_occupants * active_rule_for_month.amount
+                agreement_total_cost += monthly_cost
+                months_counted += 1
+
+            # Move to the next month
+            current_month_start += relativedelta(months=1)
+        
+        if agreement_total_cost > 0:
             calculated_costs.append({
                 'agreement': agreement,
-                'lokal': agreement.lokal,
-                'number_of_occupants': agreement.number_of_occupants,
-                'rate': waste_rule.amount,
-                'cost': cost
+                'total_cost': agreement_total_cost,
+                'start_date': agreement.start_date,
+                'months_counted': months_counted,
             })
-            total_cost += cost
+            grand_total_cost += agreement_total_cost
+
+    # Natural sort by lokal unit number
+    def natural_sort_key(s):
+        return [int(text) if text.isdigit() else text.lower() for text in re.split('([0-9]+)', str(s))]
+    calculated_costs.sort(key=lambda x: natural_sort_key(x['agreement'].lokal.unit_number))
 
     context = {
-        'waste_rule': waste_rule,
+        'waste_rule': waste_rules.first(), # For display, show the latest rule
         'calculated_costs': calculated_costs,
-        'total_cost': total_cost,
-        'title': 'Koszty stałe - Wywóz śmieci'
+        'total_cost': grand_total_cost,
+        'title': 'Koszty stałe - Wywóz śmieci (narastająco)'
     }
     return render(request, 'core/fixed_costs_list.html', context)
 
