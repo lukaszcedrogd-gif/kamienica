@@ -19,14 +19,13 @@
                         <a class="nav-link" href="{% url 'lokal_list' %}">Lokale</a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link" href="{% url 'upload_csv' %}">Import Transakcji</a>
-                    </li>
-                     <li class="nav-item">
-                        <a class="nav-link" href="{% url 'rule_list' %}">Reguły Kategoryzacji</a>
+                        <a class="nav-link" href="{% url 'agreement_list' %}">Lista Umów</a>
                     </li>
                     <li class="nav-item">
-                        <!-- Link tymczasowo wyłączony, brak wpisu w urls.py -->
-                        <a class="nav-link" href="#">Kategoryzuj interaktywnie</a>
+                        <a class="nav-link" href="{% url 'fixed_costs_list' %}">Koszty Stałe</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{% url 'upload_csv' %}">Import Transakcji</a>
                     </li>
                 </ul>
             </div>

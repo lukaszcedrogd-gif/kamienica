@@ -9,7 +9,7 @@ import datetime
 import re
 from decimal import Decimal, InvalidOperation
 from django.db.models import Q
-from .models import User, Agreement, Lokal, Meter, MeterReading, FinancialTransaction, CategorizationRule, LokalAssignmentRule
+from .models import User, Agreement, Lokal, Meter, MeterReading, FinancialTransaction, CategorizationRule, LokalAssignmentRule, FixedCost
 from .forms import UserForm, AgreementForm, LokalForm, MeterReadingForm, CSVUploadForm
 from .models import Lokal, Meter
 from .forms import LokalForm
@@ -727,3 +727,39 @@ def meter_consumption_report(request):
         'title': 'Raport Zużycia Mediów'
     }
     return render(request, 'core/meter_consumption_report.html', context)
+
+# --- Fixed Costs View ---
+
+def fixed_costs_view(request):
+    # Pobierz najnowszą, aktywną regułę dla wywozu śmieci, która jest liczona od osoby
+    waste_rule = FixedCost.objects.filter(
+        name__icontains="śmieci", 
+        calculation_method='per_person'
+    ).order_by('-effective_date').first()
+
+    calculated_costs = []
+    total_cost = 0
+
+    if waste_rule:
+        # Pobierz wszystkie aktywne umowy
+        agreements = Agreement.objects.filter(is_active=True).select_related('lokal')
+        
+        for agreement in agreements:
+            cost = agreement.number_of_occupants * waste_rule.amount
+            calculated_costs.append({
+                'agreement': agreement,
+                'lokal': agreement.lokal,
+                'number_of_occupants': agreement.number_of_occupants,
+                'rate': waste_rule.amount,
+                'cost': cost
+            })
+            total_cost += cost
+
+    context = {
+        'waste_rule': waste_rule,
+        'calculated_costs': calculated_costs,
+        'total_cost': total_cost,
+        'title': 'Koszty stałe - Wywóz śmieci'
+    }
+    return render(request, 'core/fixed_costs_list.html', context)
+

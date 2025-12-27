@@ -1,23 +1,14 @@
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Sklasyfikuj transakcje</title>
-    <style>
-        body { font-family: sans-serif; margin: 2em; }
-        table { border-collapse: collapse; width: 100%; margin-top: 1em; }
-        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
-        th { background-color: #f2f2f2; }
-        .top-nav a { margin-right: 15px; }
-        .transaction-row { margin-bottom: 2em; padding: 1em; border: 1px solid #ccc; border-radius: 5px; }
-        .transaction-details { margin-bottom: 1em; }
-    </style>
-</head>
-<body>
+{% extends "core/base.html" %}
+
+{% block title %}Sklasyfikuj transakcje{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
     <h1>Sklasyfikuj transakcje</h1>
     <p>Niektóre transakcje nie mogły zostać automatycznie sklasyfikowane. Proszę, przypisz im kategorię.</p>
 
     {% if upload_summary %}
-        <div class="upload-summary">
+        <div class="alert alert-info">
             <h3>Podsumowanie importu</h3>
             <p>Przetworzono poprawnie: {{ upload_summary.processed_count }} wierszy.</p>
             {% if upload_summary.skipped_rows %}
@@ -37,56 +28,68 @@
             {% csrf_token %}
             
             {% for transaction in transactions %}
-                <div class="transaction-row">
-                    <h4>Transakcja do sklasyfikowania</h4>
-                    <div class="transaction-details">
-                        <p><strong>Data:</strong> {{ transaction.posting_date }}</p>
-                        <p><strong>Opis:</strong> {{ transaction.description }}</p>
-                        <p><strong>Kontrahent:</strong> {{ transaction.contractor }}</p>
-                        <p><strong>Kwota:</strong> {{ transaction.amount }}</p>
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h4>Transakcja do sklasyfikowania</h4>
                     </div>
+                    <div class="card-body">
+                        <div class="transaction-details mb-3">
+                            <p><strong>Data:</strong> {{ transaction.posting_date }}</p>
+                            <p><strong>Opis:</strong> {{ transaction.description }}</p>
+                            <p><strong>Kontrahent:</strong> {{ transaction.contractor }}</p>
+                            <p><strong>Kwota:</strong> {{ transaction.amount }}</p>
+                        </div>
 
-                    <input type="hidden" name="transaction_id_{{ forloop.counter0 }}" value="{{ transaction.transaction_id }}">
-                    <input type="hidden" name="description_{{ forloop.counter0 }}" value="{{ transaction.description }}">
-                    <input type="hidden" name="posting_date_{{ forloop.counter0 }}" value="{{ transaction.posting_date }}">
-                    <input type="hidden" name="amount_{{ forloop.counter0 }}" value="{{ transaction.amount }}">
-                    <input type="hidden" name="contractor_{{ forloop.counter0 }}" value="{{ transaction.contractor }}">
+                        <input type="hidden" name="transaction_id_{{ forloop.counter0 }}" value="{{ transaction.transaction_id }}">
+                        <input type="hidden" name="description_{{ forloop.counter0 }}" value="{{ transaction.description }}">
+                        <input type="hidden" name="posting_date_{{ forloop.counter0 }}" value="{{ transaction.posting_date }}">
+                        <input type="hidden" name="amount_{{ forloop.counter0 }}" value="{{ transaction.amount }}">
+                        <input type="hidden" name="contractor_{{ forloop.counter0 }}" value="{{ transaction.contractor }}">
 
-                    <label for="title_{{ forloop.counter0 }}">Kategoria:</label>
-                    <select name="title_{{ forloop.counter0 }}" id="title_{{ forloop.counter0 }}">
-                        {% for value, display in title_choices %}
-                            <option value="{{ value }}">{{ display }}</option>
-                        {% endfor %}
-                    </select>
+                        <div class="mb-3">
+                            <label for="title_{{ forloop.counter0 }}" class="form-label">Kategoria:</label>
+                            <select name="title_{{ forloop.counter0 }}" id="title_{{ forloop.counter0 }}" class="form-select">
+                                {% for value, display in title_choices %}
+                                    <option value="{{ value }}">{{ display }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
 
-                    <label for="keywords_{{ forloop.counter0 }}" style="margin-left: 1em;">Słowa kluczowe (oddzielone przecinkami):</label>
-                    <input type="text" name="keywords_{{ forloop.counter0 }}" id="keywords_{{ forloop.counter0 }}" size="50">
+                        <div class="mb-3">
+                            <label for="keywords_{{ forloop.counter0 }}" class="form-label">Słowa kluczowe (oddzielone przecinkami):</label>
+                            <input type="text" name="keywords_{{ forloop.counter0 }}" id="keywords_{{ forloop.counter0 }}" class="form-control">
+                        </div>
 
-                    <!-- Sekcja przypisywania lokalu -->
-                    <div style="margin-top: 10px; padding-top: 10px; border-top: 1px dashed #ccc;">
-                        <label for="lokal_id_{{ forloop.counter0 }}">Przypisz Lokal:</label>
-                        <select name="lokal_id_{{ forloop.counter0 }}" id="lokal_id_{{ forloop.counter0 }}">
-                            <option value="">-- Brak --</option>
-                            {% for lokal in lokale %}
-                                <option value="{{ lokal.id }}" {% if transaction.suggested_lokal_id == lokal.id %}selected{% endif %}>
-                                    {{ lokal.unit_number }}
-                                </option>
-                            {% endfor %}
-                        </select>
+                        <div class="border-top pt-3 mt-3">
+                            <div class="mb-3">
+                                <label for="lokal_id_{{ forloop.counter0 }}" class="form-label">Przypisz Lokal:</label>
+                                <select name="lokal_id_{{ forloop.counter0 }}" id="lokal_id_{{ forloop.counter0 }}" class="form-select">
+                                    <option value="">-- Brak --</option>
+                                    {% for lokal in lokale %}
+                                        <option value="{{ lokal.id }}" {% if transaction.suggested_lokal_id == lokal.id %}selected{% endif %}>
+                                            {{ lokal.unit_number }}
+                                        </option>
+                                    {% endfor %}
+                                </select>
+                            </div>
 
-                        <label for="lokal_keywords_{{ forloop.counter0 }}" style="margin-left: 1em;">Reguła Lokalu (np. nazwisko/konto):</label>
-                        <input type="text" name="lokal_keywords_{{ forloop.counter0 }}" id="lokal_keywords_{{ forloop.counter0 }}" size="30" placeholder="Wpisz, aby zapamiętać">
+                            <div>
+                                <label for="lokal_keywords_{{ forloop.counter0 }}" class="form-label">Reguła Lokalu (np. nazwisko/konto):</label>
+                                <input type="text" name="lokal_keywords_{{ forloop.counter0 }}" id="lokal_keywords_{{ forloop.counter0 }}" class="form-control" placeholder="Wpisz, aby zapamiętać">
+                            </div>
+                        </div>
                     </div>
                 </div>
             {% endfor %}
             <br>
             <input type="hidden" name="transaction_count" value="{{ transactions|length }}">
-            <button type="submit">Zapisz wszystkie</button>
+            <button type="submit" class="btn btn-primary">Zapisz wszystkie</button>
         </form>
     {% else %}
-        <p>Wszystkie transakcje zostały sklasyfikowane.</p>
-        <a href="{% url 'upload_csv' %}">Powrót do importu</a>
+        <div class="alert alert-success">
+            <p>Wszystkie transakcje zostały sklasyfikowane.</p>
+        </div>
+        <a href="{% url 'upload_csv' %}" class="btn btn-secondary">Powrót do importu</a>
     {% endif %}
-
-</body>
-</html>
+</div>
+{% endblock %}

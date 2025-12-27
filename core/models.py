@@ -182,26 +182,39 @@ class MeterReading(models.Model):
     def __str__(self):
         return f"Odczyt {self.meter.serial_number} z dnia {self.reading_date} = {self.value}"
 
-# --- 7. Koszty Stałe ---
+# --- 7. Reguły Naliczania Opłat (dawniej Koszty Stałe) ---
 class FixedCost(models.Model):
-    COST_TYPE_CHOICES = [
-        ('wywoz_smieci', 'Wywóz śmieci'),
-        ('ubezpieczenie', 'Ubezpieczenie'),
-        ('podatek', 'Podatek od nieruchomości'),
-        ('energia_wspolna', 'Energia części wspólnych'),
+    CALCULATION_METHOD_CHOICES = [
+        ('per_person', 'Od osoby'),
+        ('fixed_amount', 'Stała kwota (dla całej nieruchomości)'),
+        ('per_unit', 'Za jednostkę (np. m³ wody)'),
     ]
 
-    cost_type = models.CharField("Typ kosztu", max_length=100, choices=COST_TYPE_CHOICES)
-    cost_per_person = models.DecimalField("Koszt / osobę", max_digits=10, decimal_places=2, null=True, blank=True)
-    amount = models.DecimalField("Stała kwota", max_digits=10, decimal_places=2, null=True, blank=True)
+    name = models.CharField("Nazwa reguły", max_length=150)
+    calculation_method = models.CharField("Metoda obliczeń", max_length=50, choices=CALCULATION_METHOD_CHOICES)
+    
+    # Pola dla różnych metod obliczeń
+    amount = models.DecimalField("Wartość", max_digits=10, decimal_places=4, help_text="Kwota od osoby, stała kwota lub cena za jednostkę")
+    
+    # Powiązanie z typem mediów (dla metody 'per_unit')
+    meter_type = models.CharField(
+        "Typ licznika (dla opłat 'za jednostkę')", 
+        max_length=50, 
+        choices=Meter.METER_TYPE_CHOICES, 
+        null=True, 
+        blank=True
+    )
+
     effective_date = models.DateField("Data wejścia w życie", default=timezone.now)
 
     class Meta:
-        verbose_name = "Koszt Stały"
-        verbose_name_plural = "Koszty Stałe"
+        verbose_name = "Reguła Naliczania Opłat"
+        verbose_name_plural = "Reguły Naliczania Opłat"
+        ordering = ['-effective_date']
         
     def __str__(self):
-        return f"{self.get_cost_type_display()} od {self.effective_date}"
+        return f"Reguła: {self.name} od {self.effective_date.strftime('%Y-%m-%d')}"
+
 
 # --- 8. Transakcje Finansowe ---
 class FinancialTransaction(models.Model):
@@ -300,5 +313,35 @@ class LocalPhoto(models.Model):
         
     def __str__(self):
         return f"Zdjęcie dla {self.lokal.unit_number} z dnia {self.photo_date}"
+
+# --- 12. Naliczenia Miesięczne ---
+class MonthlyCharge(models.Model):
+    agreement = models.ForeignKey(Agreement, verbose_name="Umowa", on_delete=models.CASCADE, related_name="monthly_charges")
+    month_year = models.DateField("Miesiąc naliczenia", help_text="Pierwszy dzień miesiąca, którego dotyczy naliczenie, np. 2025-01-01")
+
+    # Składniki naliczenia
+    rent = models.DecimalField("Czynsz", max_digits=10, decimal_places=2)
+    fixed_fees = models.DecimalField("Opłaty stałe (np. śmieci)", max_digits=10, decimal_places=2)
+    water_cost = models.DecimalField("Koszt wody", max_digits=10, decimal_places=2, default=0)
+    
+    total_charge = models.DecimalField("Suma naliczenia", max_digits=10, decimal_places=2)
+    
+    # Dodatkowe informacje
+    description = models.TextField("Opis/Notatki do naliczenia", blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Naliczenie Miesięczne"
+        verbose_name_plural = "Naliczenia Miesięczne"
+        unique_together = ('agreement', 'month_year') # Zapewnia jedno naliczenie na umowę na miesiąc
+        ordering = ['-month_year', 'agreement']
+
+    def save(self, *args, **kwargs):
+        # Automatyczne obliczanie sumy
+        self.total_charge = self.rent + self.fixed_fees + self.water_cost
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"Naliczenie dla {self.agreement} za {self.month_year.strftime('%Y-%m')} - {self.total_charge} PLN"
 
     

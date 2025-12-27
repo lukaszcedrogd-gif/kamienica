@@ -1,39 +1,22 @@
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Lista Lokali</title>
-    <style>
-        body { font-family: sans-serif; margin: 2em; }
-        table { border-collapse: collapse; width: 100%; }
-        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
-        th { background-color: #f2f2f2; }
-        .actions a, .actions button {
-            margin-right: 5px;
-            padding: 5px 10px;
-            text-decoration: none;
-            border: 1px solid #ccc;
-            background-color: #f0f0f0;
-            color: #333;
-            cursor: pointer;
-        }
-        .actions .edit-btn { background-color: #ffc107; }
-        .actions .delete-btn { background-color: #dc3545; color: white; border-color: #dc3545; }
-        .top-nav a { margin-right: 15px; }
-    </style>
-</head>
-<body>
+{% extends "core/base.html" %}
+
+{% block title %}Lista Lokali{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
     <h1>Lista Lokali</h1>
-    <div class="top-nav">
-        <a href="{% url 'lokal-add' %}">Dodaj nowy lokal</a>
-        <a href="{% url 'user_list' %}">Lista użytkowników</a>
-        <a href="{% url 'agreement_list' %}">Lista umów</a>
-        <a href="{% url 'meter_readings' %}">Odczyty liczników</a>
-        <a href="{% url 'meter-consumption-report' %}">Raport Zużycia</a>
-        <a href="{% url 'upload_csv' %}">Importuj transakcje</a>
-    </div>
-    <br>
-    <table>
-        <thead>
+    <a href="{% url 'lokal-add' %}" class="btn btn-primary">Dodaj nowy lokal</a>
+</div>
+
+{% if messages %}
+    {% for message in messages %}
+        <div class="alert alert-{{ message.tags }}">{{ message }}</div>
+    {% endfor %}
+{% endif %}
+
+<div class="table-responsive">
+    <table class="table table-striped table-hover">
+        <thead class="thead-light">
             <tr>
                 <th>Numer Lokalu</th>
                 <th>Metraż (m²)</th>
@@ -47,24 +30,21 @@
                     <td>{{ lokal.unit_number }}</td>
                     <td>{{ lokal.size_sqm }}</td>
                     <td>{{ lokal.description|default:"Brak opisu" }}</td>
-                    <td class="actions">
-                        <a href="{% url 'lokal-detail' lokal.pk %}" class="details-btn">Szczegóły</a>
-                        <a href="{% url 'lokal-edit' lokal.pk %}" class="edit-btn">Edytuj</a>
-                        <form method="post" action="{% url 'lokal-delete' lokal.pk %}" style="display:inline;">
+                    <td>
+                        <a href="{% url 'lokal-detail' lokal.pk %}" class="btn btn-sm btn-info">Szczegóły</a>
+                        <a href="{% url 'lokal-edit' lokal.pk %}" class="btn btn-sm btn-warning">Edytuj</a>
+                        <form method="post" action="{% url 'lokal-delete' lokal.pk %}" style="display:inline;" onsubmit="return confirm('Czy na pewno chcesz usunąć ten lokal?');">
                             {% csrf_token %}
-                            <button type="submit" class="delete-btn">Usuń</button>
+                            <button type="submit" class="btn btn-sm btn-danger">Usuń</button>
                         </form>
                     </td>
                 </tr>
             {% empty %}
                 <tr>
-                    <td colspan="4">Brak aktywnych lokali w bazie.</td>
+                    <td colspan="4" class="text-center">Brak aktywnych lokali w bazie.</td>
                 </tr>
             {% endfor %}
         </tbody>
     </table>
-    <style>
-        .actions .details-btn { background-color: #17a2b8; color: white; }
-    </style>
-</body>
-</html>
+</div>
+{% endblock %}

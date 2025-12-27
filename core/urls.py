@@ -12,6 +12,7 @@ urlpatterns = [
     path('categorize_transactions/', views.categorize_transactions, name='categorize_transactions'),
     path('save_categorization/', views.save_categorization, name='save_categorization'),
     path('clear_transactions/', views.clear_all_transactions, name='clear_all_transactions'),
+    path('fixed-costs/', views.fixed_costs_view, name='fixed_costs_list'),
 
     # Rule Management
     path('rules/', views.rule_list, name='rule_list'),

@@ -1,0 +1,75 @@
+{% extends "core/base.html" %}
+
+{% block title %}{{ title }}{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h1 class="mb-0">{{ title }}</h1>
+        <div>
+            <a href="{% url 'agreement_list' %}" class="btn btn-info">Lista umów</a>
+            <a href="{% url 'lokal_list' %}" class="btn btn-secondary">Lista lokali</a>
+        </div>
+    </div>
+
+    {% if not waste_rule %}
+        <div class="alert alert-warning" role="alert">
+            <strong>Nie można było znaleźć aktywnej reguły!</strong>
+            <p>Nie znaleziono reguły naliczania opłat za wywóz śmieci z metodą "od osoby". Proszę, dodaj odpowiednią regułę w panelu administracyjnym.</p>
+            <a href="/admin/core/fixedcost/add/" class="btn btn-primary">Dodaj regułę</a>
+        </div>
+    {% else %}
+        <div class="card mb-4">
+            <div class="card-header">
+                Aktualnie obowiązująca reguła
+            </div>
+            <div class="card-body">
+                <p class="card-text">
+                    <strong>Nazwa:</strong> {{ waste_rule.name }}<br>
+                    <strong>Stawka od osoby:</strong> {{ waste_rule.amount|stringformat:".2f" }} zł<br>
+                    <strong>Data wejścia w życie:</strong> {{ waste_rule.effective_date|date:"Y-m-d" }}
+                </p>
+            </div>
+        </div>
+
+        {% if calculated_costs %}
+            <div class="table-responsive">
+                <table class="table table-striped table-hover">
+                    <thead class="thead-light">
+                        <tr>
+                            <th scope="col">Lokal</th>
+                            <th scope="col" class="text-center">Liczba osób</th>
+                            <th scope="col" class="text-right">Stawka/osobę (zł)</th>
+                            <th scope="col" class="text-right">Całkowity koszt (zł)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for item in calculated_costs %}
+                            <tr>
+                                <td>
+                                    <a href="{% url 'lokal-detail' item.lokal.pk %}">Lokal nr {{ item.lokal.unit_number }}</a><br>
+                                    <small class="text-muted">{{ item.agreement.user.name }} {{ item.agreement.user.lastname }}</small>
+                                </td>
+                                <td class="text-center">{{ item.number_of_occupants }}</td>
+                                <td class="text-right">{{ item.rate|stringformat:".2f" }}</td>
+                                <td class="text-right">{{ item.cost|stringformat:".2f" }}</td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                    <tfoot>
+                        <tr class="table-dark font-weight-bold">
+                            <td colspan="3" class="text-right">SUMA:</td>
+                            <td class="text-right">{{ total_cost|stringformat:".2f" }} zł</td>
+                        </tr>
+                    </tfoot>
+                </table>
+            </div>
+        {% else %}
+            <div class="alert alert-info" role="alert">
+                Brak aktywnych umów do naliczenia opłat.
+            </div>
+        {% endif %}
+    {% endif %}
+
+</div>
+{% endblock %}
