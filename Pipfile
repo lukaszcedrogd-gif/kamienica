@@ -8,6 +8,7 @@ Pillow = "~=10.1.0"
 mysqlclient = "~=2.2.4"
 django = "*"
 django-simple-history = "*"
+python-dateutil = "*"
 
 [dev-packages]
 

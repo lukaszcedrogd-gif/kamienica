@@ -1,4 +1,7 @@
 from django.shortcuts import render, redirect, get_object_or_404
+from django.db.models import Sum
+from dateutil.relativedelta import relativedelta
+from datetime import date
 from django.core.exceptions import ValidationError
 from django.http import HttpResponse
 from django.forms import modelform_factory
@@ -762,4 +765,113 @@ def fixed_costs_view(request):
         'title': 'Koszty stałe - Wywóz śmieci'
     }
     return render(request, 'core/fixed_costs_list.html', context)
+
+
+def terminate_agreement(request, pk):
+    agreement = get_object_or_404(Agreement, pk=pk)
+    if request.method == 'POST':
+        end_date_str = request.POST.get('end_date')
+        if not end_date_str:
+            messages.error(request, "Data zakończenia jest wymagana.")
+            return render(request, 'core/terminate_agreement_form.html', {'agreement': agreement})
+
+        try:
+            end_date = datetime.datetime.strptime(end_date_str, '%Y-%m-%d').date()
+        except ValueError:
+            messages.error(request, "Nieprawidłowy format daty.")
+            return render(request, 'core/terminate_agreement_form.html', {'agreement': agreement})
+
+        agreement.end_date = end_date
+        agreement.is_active = False
+        agreement.save()
+
+        messages.success(request, f"Umowa dla lokalu {agreement.lokal.unit_number} została zakończona z dniem {end_date}.")
+        return redirect('settlement', pk=agreement.pk)
+
+    return render(request, 'core/terminate_agreement_form.html', {'agreement': agreement})
+
+
+from dateutil.relativedelta import relativedelta
+from django.db.models import Sum
+from datetime import date
+
+def settlement(request, pk):
+    agreement = get_object_or_404(Agreement.all_objects, pk=pk) # Use all_objects to get even inactive ones
+
+    # Determine the settlement period (calendar year of the end date)
+    if not agreement.end_date:
+        # Fallback if somehow called on an agreement without an end date
+        agreement.end_date = date.today()
+        
+    year = agreement.end_date.year
+    period_start = date(year, 1, 1)
+    period_end = date(year, 12, 31)
+
+    # --- CALCULATIONS ---
+
+    # 1. Calculate Total Rent
+    total_rent = Decimal('0.00')
+    current_month = period_start
+    while current_month <= period_end:
+        # Check if the agreement was active at any point in this month
+        agreement_starts_before_month_end = agreement.start_date <= (current_month + relativedelta(months=1, days=-1))
+        agreement_ends_after_month_start = agreement.end_date >= current_month
+        
+        if agreement_starts_before_month_end and agreement_ends_after_month_start:
+            total_rent += agreement.rent_amount
+        
+        current_month += relativedelta(months=1)
+
+    # 2. Calculate Total Fixed Costs (example for waste)
+    total_fixed_costs = Decimal('0.00')
+    waste_rule = FixedCost.objects.filter(name__icontains="śmieci", calculation_method='per_person').order_by('-effective_date').first()
+    if waste_rule:
+        current_month = period_start
+        while current_month <= period_end:
+            agreement_starts_before_month_end = agreement.start_date <= (current_month + relativedelta(months=1, days=-1))
+            agreement_ends_after_month_start = agreement.end_date >= current_month
+
+            if agreement_starts_before_month_end and agreement_ends_after_month_start and waste_rule.effective_date <= current_month:
+                total_fixed_costs += waste_rule.amount * agreement.number_of_occupants
+
+            current_month += relativedelta(months=1)
+
+    # 3. Calculate Total Payments
+    total_payments = FinancialTransaction.objects.filter(
+        lokal=agreement.lokal,
+        amount__gt=0, # Only income
+        posting_date__range=(period_start, period_end)
+    ).aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
+
+    # 4. Handle POST for additional costs
+    additional_costs = Decimal('0.00')
+    if request.method == 'POST':
+        try:
+            additional_costs = Decimal(request.POST.get('additional_costs', '0.00').replace(',', '.'))
+        except (InvalidOperation, ValueError):
+            messages.error(request, "Nieprawidłowa wartość w polu 'Koszty dodatkowe'.")
+            additional_costs = Decimal('0.00')
+    
+    # 5. Calculate final totals
+    deposit = agreement.deposit_amount or Decimal('0.00')
+    total_income = total_payments + deposit
+    total_costs = total_rent + total_fixed_costs + additional_costs
+    final_balance = total_income - total_costs
+
+    context = {
+        'agreement': agreement,
+        'period_start': period_start,
+        'period_end': period_end,
+        'total_rent': total_rent,
+        'total_fixed_costs': total_fixed_costs,
+        'total_payments': total_payments,
+        'additional_costs': additional_costs,
+        'total_income': total_income,
+        'total_costs': total_costs,
+        'final_balance': final_balance,
+        'title': f"Rozliczenie dla lokalu {agreement.lokal.unit_number}"
+    }
+
+    return render(request, 'core/settlement_summary.html', context)
+
 
