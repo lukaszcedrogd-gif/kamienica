@@ -1,24 +1,35 @@
-<!DOCTYPE html>
-<html>
-<head>
-    <title>{{ title }}</title>
-    <style>
-        body { font-family: sans-serif; margin: 2em; }
-        form p { margin-bottom: 1em; }
-        label { display: block; margin-bottom: 0.25em; }
-        input, select { width: 100%; padding: 0.5em; box-sizing: border-box; }
-        button { padding: 0.75em 1.5em; background-color: #007bff; color: white; border: none; cursor: pointer; }
-        .errorlist { color: red; list-style-type: none; padding: 0; }
-    </style>
-</head>
-<body>
-    <h1>{{ title }}</h1>
-    <form method="post">
-        {% csrf_token %}
-        {{ form.as_p }}
-        <button type="submit">Zapisz</button>
-    </form>
-    <br>
-    <a href="{% url 'user_list' %}">Powrót do listy</a>
-</body>
-</html>
+{% extends "core/base.html" %}
+
+{% block title %}{{ title|default:"Formularz użytkownika" }}{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <h1 class="mb-4">{{ title|default:"Formularz użytkownika" }}</h1>
+
+    <div class="card shadow-sm">
+        <div class="card-body">
+            <form method="post">
+                {% csrf_token %}
+                
+                {% for field in form %}
+                    <div class="form-group mb-3">
+                        <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+                        {{ field }}
+                        {% if field.help_text %}
+                            <small class="form-text text-muted">{{ field.help_text }}</small>
+                        {% endif %}
+                        {% for error in field.errors %}
+                            <div class="alert alert-danger mt-1">{{ error }}</div>
+                        {% endfor %}
+                    </div>
+                {% endfor %}
+
+                <div class="mt-4">
+                    <button type="submit" class="btn btn-primary">Zapisz</button>
+                    <a href="{% url 'user_list' %}" class="btn btn-secondary">Anuluj</a>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}

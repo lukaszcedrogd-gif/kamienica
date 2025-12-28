@@ -31,7 +31,7 @@ def lokal_list(request):
 def lokal_detail(request, pk):
     lokal = get_object_or_404(Lokal, pk=pk)
     # Prefetch related meters and their readings for efficiency
-    meters = lokal.meters.prefetch_related('readings').all()
+    meters = lokal.meters.prefetch_related('readings').filter(status='aktywny')
     context = {
         'lokal': lokal,
         'meters': meters,
@@ -58,7 +58,7 @@ def meter_readings_view(request):
                     MeterReading.objects.create(
                         meter=meter,
                         value=reading_value,
-                        date=request.POST.get('date') # You might want to get the date from the form
+                        reading_date=request.POST.get('date') # You might want to get the date from the form
                     )
         return redirect('meter_readings')
 
@@ -100,7 +100,7 @@ def create_lokal(request):
         form = LokalForm()
 
     # Pobierz liczniki nieprzypisane do żadnego lokalu (do wyboru)
-    unassigned_meters = Meter.objects.filter(lokal__isnull=True)
+    unassigned_meters = Meter.objects.filter(lokal__isnull=True, status='aktywny')
     
     context = {
         'form': form,
@@ -144,7 +144,7 @@ def edit_lokal(request, pk):
     assigned_meters = Meter.objects.filter(lokal=lokal)
     
     # Liczniki wolne (nieprzypisane)
-    unassigned_meters = Meter.objects.filter(lokal__isnull=True)
+    unassigned_meters = Meter.objects.filter(lokal__isnull=True, status='aktywny')
 
     context = {
         'form': form,
@@ -701,7 +701,7 @@ def delete_transaction(request, pk):
     })
 
 def meter_consumption_report(request):
-    meters = Meter.objects.select_related('lokal').prefetch_related('readings').all()
+    meters = Meter.objects.select_related('lokal').prefetch_related('readings').filter(status='aktywny', lokal__isnull=False)
     consumption_data = []
 
     for meter in meters:
@@ -901,5 +901,82 @@ def settlement(request, pk):
     }
 
     return render(request, 'core/settlement_summary.html', context)
+
+
+def bimonthly_report_view(request, pk):
+    lokal = get_object_or_404(Lokal, pk=pk)
+    agreement = Agreement.objects.filter(lokal=lokal, is_active=True).first()
+    
+    report_data = []
+    # A dictionary to hold aggregated data for each period, keyed by (year, start_month)
+    # e.g., {(2025, 1): {data}, (2025, 3): {data}}
+    periods = {}
+
+    water_meters = Meter.objects.filter(lokal=lokal, type__in=['hot_water', 'cold_water'], status='aktywny')
+    
+    if water_meters and agreement:
+        for meter in water_meters:
+            readings = list(meter.readings.all().order_by('reading_date'))
+
+            # Iterate through readings in pairs
+            for i in range(1, len(readings)):
+                start_reading = readings[i-1]
+                end_reading = readings[i]
+
+                consumption = end_reading.value - start_reading.value
+
+                # Heuristic to determine the period
+                end_date = end_reading.reading_date
+                year, month = end_date.year, end_date.month
+
+                if month % 2 == 0: # Even month (Feb, Apr, etc.) -> period is (month-1, month)
+                    period_start_month = month - 1
+                else: # Odd month (Mar, May, etc.) -> period is (month-2, month-1)
+                    period_start_month = month - 2
+                
+                # Handle January case (end reading is in Jan, so period is Nov-Dec of previous year)
+                if period_start_month < 1:
+                    period_start_month = 11
+                    year -= 1
+
+                period_key = (year, period_start_month)
+
+                # Initialize period in dictionary if not present
+                if period_key not in periods:
+                    periods[period_key] = {
+                        'period_start_date': date(year, period_start_month, 1),
+                        'period_end_date': date(year, period_start_month, 1) + relativedelta(months=2, days=-1),
+                        'consumption_by_meter': {},
+                        'total_consumption': Decimal('0.00'),
+                    }
+                
+                # Store consumption data for this specific meter and reading pair
+                periods[period_key]['consumption_by_meter'][meter.get_type_display()] = {
+                    'consumption': consumption,
+                    'start_reading': start_reading,
+                    'end_reading': end_reading,
+                }
+                periods[period_key]['total_consumption'] += consumption
+
+        # Convert the dictionary to a list and calculate waste costs
+        report_data = list(periods.values())
+        for period in report_data:
+            # Calculate waste disposal cost for this 2-month period
+            waste_rule = FixedCost.objects.filter(name__icontains="śmieci", calculation_method='per_person', effective_date__lte=period['period_start_date']).order_by('-effective_date').first()
+            if waste_rule:
+                period['waste_cost'] = waste_rule.amount * agreement.number_of_occupants * 2
+            else:
+                period['waste_cost'] = Decimal('0.00')
+
+    # Sort the data to show the most recent period first
+    report_data.sort(key=lambda p: p['period_start_date'], reverse=True)
+
+    context = {
+        'lokal': lokal,
+        'agreement': agreement,
+        'title': f"Raport dwumiesięczny dla lokalu {lokal.unit_number}",
+        'report_data': report_data,
+    }
+    return render(request, 'core/bimonthly_report.html', context)
 
 

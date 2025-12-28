@@ -27,6 +27,7 @@ urlpatterns = [
     # Lokal URLs
     path('lokal/add/', views.create_lokal, name='lokal-add'),
     path('lokal/<int:pk>/', views.lokal_detail, name='lokal-detail'),
+    path('lokal/<int:pk>/bimonthly-report/', views.bimonthly_report_view, name='lokal-bimonthly-report'),
     path('lokal/<int:pk>/edit/', views.edit_lokal, name='lokal-edit'),
     path('lokal/<int:pk>/delete/', views.delete_lokal, name='lokal-delete'),
 

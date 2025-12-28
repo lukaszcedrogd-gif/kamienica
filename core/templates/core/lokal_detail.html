@@ -1,49 +1,61 @@
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Szczegóły Lokalu: {{ lokal.unit_number }}</title>
-    <style>
-        body { font-family: sans-serif; margin: 2em; }
-        h1, h2 { color: #333; }
-        .meter { border: 1px solid #ccc; padding: 1em; margin-bottom: 1em; border-radius: 5px; }
-        .meter h3 { margin-top: 0; }
-        .readings-list { list-style-type: none; padding-left: 0; }
-        .readings-list li { background-color: #f9f9f9; padding: 0.5em; border-bottom: 1px solid #eee; }
-        .add-reading-link { margin-top: 1em; display: inline-block; }
-    </style>
-</head>
-<body>
-    <h1>Lokal nr {{ lokal.unit_number }}</h1>
-    <p><strong>Wielkość:</strong> {{ lokal.size_sqm }} m²</p>
-    <p><strong>Opis:</strong> {{ lokal.description }}</p>
+{% extends "core/base.html" %}
 
-    <hr>
+{% block title %}Szczegóły Lokalu: {{ lokal.unit_number }}{% endblock %}
 
-    <h2>Liczniki</h2>
-    {% for meter in meters %}
-        <div class="meter">
-            <h3>{{ meter.get_type_display }}</h3>
-            <p><strong>Numer seryjny:</strong> {{ meter.serial_number }}</p>
-            <p><strong>Status:</strong> {{ meter.get_status_display }}</p>
-
-            <h4>Ostatnie odczyty:</h4>
-            {% if meter.readings.all %}
-                <ul class="readings-list">
-                {% for reading in meter.readings.all|slice:":5" %}
-                    <li>{{ reading.reading_date }}: <strong>{{ reading.value }}</strong></li>
-                {% endfor %}
-                </ul>
-            {% else %}
-                <p>Brak odczytów.</p>
-            {% endif %}
-
-            <a href="{% url 'add_meter_reading' meter_id=meter.id %}" class="add-reading-link">Dodaj nowy odczyt</a>
+{% block content %}
+<div class="container mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h1>Lokal nr {{ lokal.unit_number }}</h1>
+        <div>
+            <a href="{% url 'lokal-bimonthly-report' lokal.pk %}" class="btn btn-primary">Raport Dwumiesięczny</a>
+            <a href="{% url 'lokal_list' %}" class="btn btn-secondary">Powrót do listy</a>
         </div>
-    {% empty %}
-        <p>Do tego lokalu nie przypisano żadnych liczników.</p>
-    {% endfor %}
+    </div>
 
-    <br>
-    <a href="{% url 'lokal_list' %}">Powrót do listy lokali</a>
-</body>
-</html>
+    <div class="card shadow-sm mb-4">
+        <div class="card-body">
+            <h5 class="card-title">Informacje o lokalu</h5>
+            <p><strong>Wielkość:</strong> {{ lokal.size_sqm }} m²</p>
+            <p><strong>Opis:</strong> {{ lokal.description }}</p>
+        </div>
+    </div>
+
+    <h2 class="mb-3">Liczniki</h2>
+    <div class="row">
+        {% for meter in meters %}
+            <div class="col-md-6 mb-4">
+                <div class="card h-100 shadow-sm">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h5 class="mb-0">{{ meter.get_type_display }}</h5>
+                        <span class="badge bg-secondary">{{ meter.serial_number }}</span>
+                    </div>
+                    <div class="card-body">
+                        <h6 class="card-subtitle mb-2 text-muted">Ostatnie odczyty:</h6>
+                        {% if meter.readings.all %}
+                            <ul class="list-group list-group-flush">
+                            {% for reading in meter.readings.all|slice:":5" %}
+                                <li class="list-group-item d-flex justify-content-between align-items-center">
+                                    {{ reading.reading_date|date:"Y-m-d" }}
+                                    <span class="fw-bold">{{ reading.value }}</span>
+                                </li>
+                            {% endfor %}
+                            </ul>
+                        {% else %}
+                            <p class="text-muted">Brak odczytów.</p>
+                        {% endif %}
+                    </div>
+                    <div class="card-footer text-end">
+                        <a href="{% url 'add_meter_reading' meter_id=meter.id %}" class="btn btn-sm btn-success">Dodaj nowy odczyt</a>
+                    </div>
+                </div>
+            </div>
+        {% empty %}
+            <div class="col">
+                <div class="alert alert-info" role="alert">
+                    Do tego lokalu nie przypisano żadnych liczników.
+                </div>
+            </div>
+        {% endfor %}
+    </div>
+</div>
+{% endblock %}

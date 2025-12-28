@@ -1,46 +1,38 @@
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Importuj transakcje z CSV</title>
-    <style>
-        body { font-family: sans-serif; margin: 2em; }
-        table { border-collapse: collapse; width: 100%; }
-        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
-        th { background-color: #f2f2f2; }
-        .top-nav a { margin-right: 15px; }
-    </style>
-</head>
-<body>
-    <h1>Importuj transakcje z CSV</h1>
-    <div class="top-nav">
-        <a href="{% url 'user_list' %}">Lista użytkowników</a>
-        <a href="{% url 'lokal_list' %}">Lista lokali</a>
-        <a href="{% url 'agreement_list' %}">Lista umów</a>
-        <a href="{% url 'meter_readings' %}">Odczyty liczników</a>
-        <a href="{% url 'upload_csv' %}">Importuj transakcje</a>
+{% extends "core/base.html" %}
+
+{% block title %}Importuj transakcje z CSV{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <h1 class="mb-4">Importuj transakcje z CSV</h1>
+
+    <div class="card shadow-sm mb-4">
+        <div class="card-body">
+            <h5 class="card-title">Wybierz plik CSV</h5>
+            <form method="post" enctype="multipart/form-data">
+                {% csrf_token %}
+                <div class="mb-3">
+                    {{ form.as_p }}
+                </div>
+                <button type="submit" class="btn btn-primary">Importuj</button>
+                 <a href="{% url 'clear_all_transactions' %}" class="btn btn-danger float-end">Wyczyść wszystkie transakcje</a>
+            </form>
+        </div>
     </div>
-    <br>
-    <form method="post" enctype="multipart/form-data">
-        {% csrf_token %}
-        {{ form.as_p }}
-        <button type="submit">Importuj</button>
-    </form>
-    <br>
-    <a href="{% url 'clear_all_transactions' %}" style="display: inline-block; margin-top: 1em; padding: 10px 15px; background-color: #dc3545; color: white; text-decoration: none; border-radius: 3px;">Wyczyść wszystkie transakcje</a>
 
     {% if messages %}
-        <div style="margin-top: 1em; padding: 10px; background-color: #d4edda; color: #155724; border: 1px solid #c3e6cb; border-radius: 3px;">
-            {% for message in messages %}
-                <p style="margin: 0;">{{ message }}</p>
-            {% endfor %}
-        </div>
+        {% for message in messages %}
+            <div class="alert alert-success" role="alert">
+                {{ message }}
+            </div>
+        {% endfor %}
     {% endif %}
 
     {% if upload_summary %}
-        <div class="upload-summary">
+        <div class="alert alert-info">
             <h3>Podsumowanie importu</h3>
             {% if upload_summary.error %}
-                <p style="color: red;">Błąd: {{ upload_summary.error }}</p>
+                <p class="text-danger">Błąd: {{ upload_summary.error }}</p>
             {% else %}
                 <p>Przetworzono poprawnie: {{ upload_summary.processed_count }} wierszy.</p>
                 {% if upload_summary.skipped_rows %}
@@ -58,82 +50,87 @@
     <hr>
 
     <h2>Historia transakcji</h2>
-    
-    <form method="get" style="background-color: #f8f9fa; padding: 15px; border-radius: 5px; border: 1px solid #ddd; margin-bottom: 20px;">
-        <div style="display: flex; gap: 15px; align-items: flex-end; flex-wrap: wrap;">
-            <div>
-                <label for="search_query" style="display: block; margin-bottom: 5px;">Szukaj (opis/kontrahent):</label>
-                <input type="text" name="search_query" id="search_query" value="{{ current_search_query|default:'' }}" style="padding: 5px;" placeholder="Wpisz tekst...">
-            </div>
-            <div>
-                <label for="category" style="display: block; margin-bottom: 5px;">Kategoria:</label>
-                <select name="category" id="category" style="padding: 5px; min-width: 150px;">
-                    <option value="">-- Wszystkie --</option>
-                    {% for code, name in title_choices %}
-                        <option value="{{ code }}" {% if current_category == code %}selected{% endif %}>{{ name }}</option>
-                    {% endfor %}
-                </select>
-            </div>
-            <div>
-                <label for="date_from" style="display: block; margin-bottom: 5px;">Od daty:</label>
-                <input type="date" name="date_from" id="date_from" value="{{ current_date_from|default:'' }}" style="padding: 5px;">
-            </div>
-            <div>
-                <label for="date_to" style="display: block; margin-bottom: 5px;">Do daty:</label>
-                <input type="date" name="date_to" id="date_to" value="{{ current_date_to|default:'' }}" style="padding: 5px;">
-            </div>
-            <div>
-                <button type="submit" style="padding: 6px 15px; background-color: #007bff; color: white; border: none; cursor: pointer; border-radius: 3px;">Filtruj</button>
-                <a href="{% url 'upload_csv' %}" style="margin-left: 10px; color: #6c757d; text-decoration: none;">Wyczyść</a>
-            </div>
-        </div>
-    </form>
 
-    <table>
-        <thead>
-            <tr>
-                <th>ID</th>
-                <th>Data</th>
-                <th>Opis</th>
-                <th>Przychód</th>
-                <th>Koszty</th>
-                <th>Dane kontrahenta</th>
-                <th>tytułem</th>
-                <th>nr mieszkania</th>
-                <th>Akcje</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for transaction in transactions %}
-                <tr {% if transaction.is_split_payment %}style="background-color: #fff8e1;"{% elif transaction.lokal %}style="background-color: #f0fff4;"{% endif %}>
-                    <td>
-                        {{ transaction.id }}
-                        {% if transaction.is_split_payment %}
-                            <span title="Transakcja powstała w wyniku podziału">✂️</span>
-                        {% endif %}
-                    </td>
-                    <td>{{ transaction.posting_date }}</td>
-                    <td>{{ transaction.description }}</td>
-                    {% if transaction.amount > 0 %}
-                        <td>{{ transaction.amount }}</td>
-                        <td></td>
-                    {% else %}
-                        <td></td>
-                        <td>{{ transaction.amount }}</td>
-                    {% endif %}
-                    <td>{{ transaction.contractor }}</td>
-                    <td>{{ transaction.get_title_display }}</td>
-                    <td>{{ transaction.lokal.unit_number|default:"-" }}</td>
-                    <td>
-                        <a href="{% url 'transaction-edit' transaction.pk %}" style="text-decoration: none; color: #007bff;">Edytuj</a>
-                    </td>
-                </tr>
-            {% empty %}
+    <div class="card shadow-sm mb-4">
+        <div class="card-body">
+            <h5 class="card-title">Filtruj transakcje</h5>
+            <form method="get" class="row g-3 align-items-end">
+                <div class="col-md-3">
+                    <label for="search_query" class="form-label">Szukaj (opis/kontrahent):</label>
+                    <input type="text" name="search_query" id="search_query" value="{{ current_search_query|default:'' }}" class="form-control" placeholder="Wpisz tekst...">
+                </div>
+                <div class="col-md-3">
+                    <label for="category" class="form-label">Kategoria:</label>
+                    <select name="category" id="category" class="form-select">
+                        <option value="">-- Wszystkie --</option>
+                        {% for code, name in title_choices %}
+                            <option value="{{ code }}" {% if current_category == code %}selected{% endif %}>{{ name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <label for="date_from" class="form-label">Od daty:</label>
+                    <input type="date" name="date_from" id="date_from" value="{{ current_date_from|default:'' }}" class="form-control">
+                </div>
+                <div class="col-md-2">
+                    <label for="date_to" class="form-label">Do daty:</label>
+                    <input type="date" name="date_to" id="date_to" value="{{ current_date_to|default:'' }}" class="form-control">
+                </div>
+                <div class="col-md-2">
+                    <button type="submit" class="btn btn-primary w-100">Filtruj</button>
+                    <a href="{% url 'upload_csv' %}" class="btn btn-secondary w-100 mt-2">Wyczyść</a>
+                </div>
+            </form>
+        </div>
+    </div>
+    
+    <div class="table-responsive">
+        <table class="table table-striped table-hover">
+            <thead class="thead-light">
                 <tr>
-                    <td colspan="7">Brak transakcji.</td>
+                    <th>ID</th>
+                    <th>Data</th>
+                    <th>Opis</th>
+                    <th>Przychód</th>
+                    <th>Koszty</th>
+                    <th>Dane kontrahenta</th>
+                    <th>Tytułem</th>
+                    <th>Nr mieszkania</th>
+                    <th>Akcje</th>
                 </tr>
-            {% endfor %}
-        </tbody>
-    </table>
-</body>
-</html>
+            </thead>
+            <tbody>
+                {% for transaction in transactions %}
+                    <tr class="{% if transaction.is_split_payment %}table-warning{% elif transaction.lokal %}table-success{% endif %}">
+                        <td>
+                            {{ transaction.id }}
+                            {% if transaction.is_split_payment %}
+                                <span title="Transakcja powstała w wyniku podziału">✂️</span>
+                            {% endif %}
+                        </td>
+                        <td>{{ transaction.posting_date }}</td>
+                        <td>{{ transaction.description }}</td>
+                        {% if transaction.amount > 0 %}
+                            <td class="text-success">{{ transaction.amount }}</td>
+                            <td></td>
+                        {% else %}
+                            <td></td>
+                            <td class="text-danger">{{ transaction.amount }}</td>
+                        {% endif %}
+                        <td>{{ transaction.contractor }}</td>
+                        <td>{{ transaction.get_title_display }}</td>
+                        <td>{{ transaction.lokal.unit_number|default:"-" }}</td>
+                        <td>
+                            <a href="{% url 'transaction-edit' transaction.pk %}" class="btn btn-sm btn-warning">Edytuj</a>
+                        </td>
+                    </tr>
+                {% empty %}
+                    <tr>
+                        <td colspan="9" class="text-center">Brak transakcji.</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

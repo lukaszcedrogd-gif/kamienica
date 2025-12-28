@@ -53,7 +53,7 @@ class User(models.Model):
 # --- 2. Lokale ---
 class Lokal(models.Model):
     unit_number = models.CharField("Numer mieszkania", max_length=10, unique=True, help_text="Np. '3a', '12'")
-    size_sqm = models.DecimalField("Wielkość (m²)", max_digits=5, decimal_places=2)
+    size_sqm = models.DecimalField("Wielkość (m²)", max_digits=11, decimal_places=2)
     description = models.TextField("Opis zawartości", blank=True, help_text="Opis wyposażenia, stanu lokalu.")
     is_active = models.BooleanField("Aktywny", default=True)
 
