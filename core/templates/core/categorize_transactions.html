@@ -5,68 +5,60 @@
 {% block content %}
 <div class="container mt-4">
     <h1>Sklasyfikuj transakcje</h1>
-    <p>Niektóre transakcje nie mogły zostać automatycznie sklasyfikowane. Proszę, przypisz im kategorię.</p>
-
-    {% if upload_summary %}
-        <div class="alert alert-info">
-            <h3>Podsumowanie importu</h3>
-            <p>Przetworzono poprawnie: {{ upload_summary.processed_count }} wierszy.</p>
-            {% if upload_summary.skipped_rows %}
-                <p>Pominięto następujące wiersze:</p>
-                <ul>
-                    {% for row_num, reason in upload_summary.skipped_rows %}
-                        <li>Wiersz {{ row_num }}: {{ reason }}</li>
-                    {% endfor %}
-                </ul>
-            {% endif %}
-        </div>
-        <hr>
-    {% endif %}
+    <p>Niektóre transakcje wymagają ręcznej kategoryzacji lub mają konflikty reguł.</p>
 
     {% if transactions %}
         <form method="post" action="{% url 'save_categorization' %}">
             {% csrf_token %}
             
             {% for transaction in transactions %}
-                <div class="card mb-4">
-                    <div class="card-header">
-                        <h4>Transakcja do sklasyfikowania</h4>
+                <input type="hidden" name="transaction_id" value="{{ transaction.id }}">
+                <div class="card mb-4 {% if transaction.status == 'CONFLICT' %}border-danger{% endif %}">
+                    <div class="card-header {% if transaction.status == 'CONFLICT' %}bg-danger text-white{% endif %}">
+                        <h4>
+                            Transakcja do weryfikacji
+                            {% if transaction.status == 'CONFLICT' %}
+                                <span class="badge bg-light text-danger float-end">KONFLIKT REGUŁ</span>
+                            {% endif %}
+                        </h4>
                     </div>
                     <div class="card-body">
                         <div class="transaction-details mb-3">
                             <p><strong>Data:</strong> {{ transaction.posting_date }}</p>
                             <p><strong>Opis:</strong> {{ transaction.description }}</p>
                             <p><strong>Kontrahent:</strong> {{ transaction.contractor }}</p>
-                            <p><strong>Kwota:</strong> {{ transaction.amount }}</p>
+                            <p><strong>Kwota:</strong> <span class="{% if transaction.amount > 0 %}text-success{% else %}text-danger{% endif %}">{{ transaction.amount }}</span></p>
+                            <p><strong>Status:</strong> <span class="badge bg-warning text-dark">{{ transaction.get_status_display }}</span></p>
+                            {% if transaction.processing_log %}
+                            <div class="mt-2">
+                                <small class="text-muted"><strong>Log automatycznego przetwarzania:</strong></small>
+                                <pre class="alert alert-secondary p-2 small"><code>{{ transaction.processing_log }}</code></pre>
+                            </div>
+                            {% endif %}
                         </div>
 
-                        <input type="hidden" name="transaction_id_{{ forloop.counter0 }}" value="{{ transaction.transaction_id }}">
-                        <input type="hidden" name="description_{{ forloop.counter0 }}" value="{{ transaction.description }}">
-                        <input type="hidden" name="posting_date_{{ forloop.counter0 }}" value="{{ transaction.posting_date }}">
-                        <input type="hidden" name="amount_{{ forloop.counter0 }}" value="{{ transaction.amount }}">
-                        <input type="hidden" name="contractor_{{ forloop.counter0 }}" value="{{ transaction.contractor }}">
-
                         <div class="mb-3">
-                            <label for="title_{{ forloop.counter0 }}" class="form-label">Kategoria:</label>
-                            <select name="title_{{ forloop.counter0 }}" id="title_{{ forloop.counter0 }}" class="form-select">
+                            <label for="title_{{ transaction.id }}" class="form-label">Kategoria:</label>
+                            <select name="title_{{ transaction.id }}" id="title_{{ transaction.id }}" class="form-select" required>
+                                <option value="">--- Wybierz kategorię ---</option>
                                 {% for value, display in title_choices %}
-                                    <option value="{{ value }}">{{ display }}</option>
+                                    <option value="{{ value }}" {% if transaction.title == value %}selected{% endif %}>{{ display }}</option>
                                 {% endfor %}
                             </select>
                         </div>
 
                         <div class="mb-3">
-                            <label for="keywords_{{ forloop.counter0 }}" class="form-label">Słowa kluczowe (oddzielone przecinkami):</label>
-                            <input type="text" name="keywords_{{ forloop.counter0 }}" id="keywords_{{ forloop.counter0 }}" class="form-control">
+                            <label for="keywords_{{ transaction.id }}" class="form-label">Utwórz regułę Tytułu na podstawie słów kluczowych:</label>
+                            <input type="text" name="keywords_{{ transaction.id }}" id="keywords_{{ transaction.id }}" class="form-control" placeholder="Wpisz, aby zapisać nową regułę kategoryzacji (opcjonalnie)">
                         </div>
 
                         <div class="border-top pt-3 mt-3">
                             <div class="mb-3">
-                                <label for="lokal_id_{{ forloop.counter0 }}" class="form-label">Przypisz Lokal:</label>
-                                <select name="lokal_id_{{ forloop.counter0 }}" id="lokal_id_{{ forloop.counter0 }}" class="form-select">
+                                <label for="lokal_id_{{ transaction.id }}" class="form-label">Przypisz Lokal:</label>
+                                <select name="lokal_id_{{ transaction.id }}" id="lokal_id_{{ transaction.id }}" class="form-select">
                                     <option value="">-- Brak --</option>
                                     {% for lokal in lokale %}
-                                        <option value="{{ lokal.id }}" {% if transaction.suggested_lokal_id == lokal.id %}selected{% endif %}>
+                                        <option value="{{ lokal.id }}" {% if transaction.lokal_id == lokal.id %}selected{% endif %}>
                                             {{ lokal.unit_number }}
                                         </option>
                                     {% endfor %}
@@ -74,15 +66,14 @@
                             </div>
 
                             <div>
-                                <label for="lokal_keywords_{{ forloop.counter0 }}" class="form-label">Reguła Lokalu (np. nazwisko/konto):</label>
-                                <input type="text" name="lokal_keywords_{{ forloop.counter0 }}" id="lokal_keywords_{{ forloop.counter0 }}" class="form-control" placeholder="Wpisz, aby zapamiętać">
+                                <label for="lokal_keywords_{{ transaction.id }}" class="form-label">Utwórz regułę Lokalu (np. nazwisko/konto):</label>
+                                <input type="text" name="lokal_keywords_{{ transaction.id }}" id="lokal_keywords_{{ transaction.id }}" class="form-control" placeholder="Wpisz, aby zapisać nową regułę lokalu (opcjonalnie)">
                             </div>
                         </div>
                     </div>
                 </div>
             {% endfor %}
             <br>
-            <input type="hidden" name="transaction_count" value="{{ transactions|length }}">
             <button type="submit" class="btn btn-primary">Zapisz wszystkie</button>
         </form>
     {% else %}

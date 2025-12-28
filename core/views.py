@@ -244,88 +244,120 @@ def delete_agreement(request, pk):
 
 # --- Financial Views ---
 def get_title_from_description(description, contractor=''):
-    # Szukamy w opisie ORAZ w nazwie kontrahenta (nr faktury/nazwa)
-    search_text = (description + ' ' + contractor).lower()
+    search_text = (description + ' ' + (contractor or '')).lower()
     rules = CategorizationRule.objects.all()
+    
+    matching_titles = []
+    matched_rules_for_log = []
+
     for rule in rules:
-        keywords = [kw.strip().lower() for kw in rule.keywords.split(',') if kw.strip()]
-        if keywords and any(keyword in search_text for keyword in keywords):
-            return rule.title
+        # Keywords are comma-separated phrases. We check each phrase using regex for whole-word matching.
+        phrases = [p.strip().lower() for p in rule.keywords.split(',') if p.strip()]
+        for phrase in phrases:
+            if re.search(r'\b' + re.escape(phrase) + r'\b', search_text):
+                matching_titles.append(rule.title)
+                matched_rules_for_log.append(f"'{rule.keywords}'")
+                break # A rule matches if any of its phrases match. Move to next rule.
+
+    unique_matches = list(set(matching_titles))
+
+    if len(unique_matches) == 1:
+        log = f"Dopasowano regułę: {', '.join(matched_rules_for_log)}."
+        return unique_matches[0], 'PROCESSED', log
+    elif len(unique_matches) > 1:
+        log = f"Konflikt, dopasowano reguły: {', '.join(matched_rules_for_log)}."
+        return None, 'CONFLICT', log
+
     # Fallback to the old logic if no rule is found
     description_lower = description.lower()
-    if 'opłata za prowadzenie rachunku' in description_lower:
-        return 'oplata_bankowa'
-    if 'opłata mies. karta' in description_lower:
-        return 'oplata_bankowa'
-    if 'opłata za wywóz śmieci' in description_lower:
-        return 'wywoz_smieci'
-    if 'pzu' in description_lower:
-        return 'ubezpieczenie'
-    if 'aqua' in description_lower:
-        return 'oplata_za_wode'
-    if 'czynsz' in description_lower:
-        return 'czynsz'
-    if 'tauron' in description_lower:
-        return 'energia_klatka'
-    if 'podatek' in description_lower:
-        return 'podatek'
-    if 'pit' in description_lower:
-        return 'podatek'
-    return None
+    fallback_map = {
+        'opłata za prowadzenie rachunku': 'oplata_bankowa',
+        'opłata mies. karta': 'oplata_bankowa',
+        'opłata za wywóz śmieci': 'wywoz_smieci',
+        'pzu': 'ubezpieczenie',
+        'aqua': 'oplata_za_wode',
+        'czynsz': 'czynsz',
+        'tauron': 'energia_klatka',
+        'podatek': 'podatek',
+        'pit': 'podatek',
+    }
+    for keyword, title in fallback_map.items():
+        if keyword in description_lower:
+            return title, 'PROCESSED', f"Dopasowano regułę wbudowaną dla '{keyword}'."
+        
+    return None, 'UNPROCESSED', "Nie znaleziono pasującej reguły."
 
 def match_lokal_for_transaction(description, contractor, amount, posting_date):
-    """
-    Funkcja próbująca przypisać lokal do transakcji na podstawie:
-    1. Reguł zdefiniowanych przez użytkownika (LokalAssignmentRule) - np. nr konta, nazwiska.
-    2. Analizy tekstu pod kątem numeru lokalu (np. "m 4", "lok. 12").
-    3. Wyszukiwania najemcy w bazie danych (Imię + Nazwisko) i sprawdzenia aktywnej umowy.
-    """
-    # Jeśli to wypłata (kwota ujemna), zazwyczaj nie przypisujemy lokalu (chyba że zwrot kaucji, ale to rzadkość)
-    # Zgodnie z życzeniem pomijamy ujemne.
+    log_messages = []
+    
+    # Reguła nadrzędna: Ujemne kwoty (koszty) są przypisywane do "kamienicy"
     if amount < 0:
-        return None
+        try:
+            kamienica_lokal = Lokal.objects.get(unit_number__iexact='kamienica')
+            log_message = "Automatycznie przypisano do 'kamienica' (transakcja kosztowa)."
+            return kamienica_lokal, 'PROCESSED', log_message
+        except Lokal.DoesNotExist:
+            log_messages.append("Nie znaleziono lokalu 'kamienica' dla transakcji kosztowej.")
+            # Kontynuujemy, może inna reguła coś znajdzie
 
-    search_text = (description + ' ' + contractor).lower()
-
+    search_text = (description + ' ' + (contractor or '')).lower()
+    found_lokals = []
+    
     # 1. Sprawdzenie Reguł (Słowa kluczowe / Nr konta)
-    # To pokrywa przypadek "nr konta z którego przyszedł przelew"
     for rule in LokalAssignmentRule.objects.all():
-        if rule.keywords.lower() in search_text:
-            return rule.lokal
+        if re.search(r'\b' + re.escape(rule.keywords.lower()) + r'\b', search_text):
+            found_lokals.append(rule.lokal)
+            log_messages.append(f"Dopasowano regułę przypisania lokalu: '{rule.keywords}' -> Lokal {rule.lokal.unit_number}.")
 
     # 2. Analiza tekstowa (Regex) - szukanie "lok/m/nr" + liczba
-    # \b oznacza granicę słowa, więc nie złapie "blok" jako "lok"
-    match = re.search(r'\b(lok|m|mieszkanie|nr)\.?\s*(\d+[a-zA-Z]?)', search_text)
-    if match:
-        unit_num = match.group(2)
-        try:
-            return Lokal.objects.get(unit_number=unit_num)
-        except Lokal.DoesNotExist:
-            pass # Szukamy dalej
+    # Poprawiona reguła, aby 'm.' nie było mylone z 'mieszkanie' w adresach
+    matches = re.finditer(r'\b(lok|mieszkanie|nr)\.?\s*(\d+[a-zA-Z]?)|\bm\s*(\d+[a-zA-Z]?)', search_text)
+    for match in matches:
+        # Numer lokalu może być w drugiej lub trzeciej grupie przechwytującej, w zależności od części reguły
+        unit_num = match.group(2) or match.group(3)
+        if unit_num:
+            try:
+                lokal = Lokal.objects.get(unit_number__iexact=unit_num)
+                found_lokals.append(lokal)
+                log_messages.append(f"Dopasowano numer lokalu w tekście: '{match.group(0)}' -> Lokal {lokal.unit_number}.")
+            except Lokal.DoesNotExist:
+                pass
 
     # 3. Analiza Umów (Osoby)
-    # Szukamy użytkowników, których Imię ORAZ Nazwisko występują w tekście
     users = User.objects.filter(is_active=True, role__in=['lokator', 'wlasciciel'])
     for user in users:
         if user.lastname.lower() in search_text and user.name.lower() in search_text:
-            # Znaleziono osobę, sprawdzamy czy miała aktywną umowę w dniu transakcji
             agreement = Agreement.objects.filter(user=user, is_active=True, start_date__lte=posting_date).filter(Q(end_date__gte=posting_date) | Q(end_date__isnull=True)).first()
             if agreement:
-                return agreement.lokal
+                found_lokals.append(agreement.lokal)
+                log_messages.append(f"Dopasowano najemcę: '{user.name} {user.lastname}' -> Lokal {agreement.lokal.unit_number}.")
 
-    return None
+    unique_lokals = list(set(found_lokals))
+
+    if len(unique_lokals) == 1:
+        final_log = " ".join(log_messages)
+        return unique_lokals[0], 'PROCESSED', final_log
+    elif len(unique_lokals) > 1:
+        final_log = "Konflikt: Znaleziono wiele pasujących lokali. " + " ".join(log_messages)
+        return None, 'CONFLICT', final_log
+    else:
+        return None, 'UNPROCESSED', "Nie znaleziono pasującego lokalu."
 
 def upload_csv(request):
     transactions = FinancialTransaction.objects.all().order_by('-posting_date')
+    lokale = Lokal.objects.all().order_by('unit_number') # For the filter dropdown
 
     # Filtering
     category_filter = request.GET.get('category')
     date_from = request.GET.get('date_from')
     date_to = request.GET.get('date_to')
     search_query = request.GET.get('search_query')
+    lokal_filter = request.GET.get('lokal_id')
 
     if category_filter:
         transactions = transactions.filter(title=category_filter)
+    if lokal_filter:
+        transactions = transactions.filter(lokal_id=lokal_filter)
     if date_from:
         transactions = transactions.filter(posting_date__gte=date_from)
     if date_to:
@@ -342,7 +374,9 @@ def upload_csv(request):
         'upload_summary': request.session.pop('upload_summary', None),
         'rules_count': CategorizationRule.objects.count(),
         'title_choices': FinancialTransaction.TITLE_CHOICES,
+        'lokale': lokale, # Pass lokale to template
         'current_category': category_filter,
+        'current_lokal_id': lokal_filter, # Pass current filter value
         'current_date_from': date_from,
         'current_date_to': date_to,
         'current_search_query': search_query,
@@ -378,7 +412,7 @@ def upload_csv(request):
 
             processed_count = 0
             skipped_rows = []
-            uncategorized_rows = []
+            has_manual_work = False
             row_num = 1
 
             for row in reader:
@@ -405,26 +439,35 @@ def upload_csv(request):
                             skipped_rows.append((row_num, 'Pusty numer transakcji'))
                             continue
                         
-                        title = get_title_from_description(description, contractor)
-                        suggested_lokal = match_lokal_for_transaction(description, contractor, amount, parsed_date)
+                        title, title_status, title_log = get_title_from_description(description, contractor)
+                        suggested_lokal, lokal_status, lokal_log = match_lokal_for_transaction(description, contractor, amount, parsed_date)
 
-                        transaction_data = {
-                            'posting_date': parsed_date.isoformat(),
-                            'description': description,
-                            'amount': str(amount),
-                            'contractor': contractor,
-                            'transaction_id': transaction_id,
-                        }
+                        final_status = 'PROCESSED'
+                        if title_status == 'CONFLICT' or lokal_status == 'CONFLICT':
+                            final_status = 'CONFLICT'
+                        elif title_status == 'UNPROCESSED':
+                            final_status = 'UNPROCESSED'
 
-                        if title:
-                            FinancialTransaction.objects.update_or_create(
-                                transaction_id=transaction_id,
-                                defaults={**transaction_data, 'title': title, 'lokal': suggested_lokal}
-                            )
-                            processed_count += 1
-                        else:
-                            transaction_data['suggested_lokal_id'] = suggested_lokal.id if suggested_lokal else ''
-                            uncategorized_rows.append(transaction_data)
+                        if final_status != 'PROCESSED':
+                            has_manual_work = True
+                        
+                        # Połączenie logów z obu funkcji
+                        full_log = f"Kategoryzacja Tytułu: {title_log} | Przypisanie Lokalu: {lokal_log}"
+
+                        FinancialTransaction.objects.update_or_create(
+                            transaction_id=transaction_id,
+                            defaults={
+                                'posting_date': parsed_date,
+                                'description': description,
+                                'amount': amount,
+                                'contractor': contractor,
+                                'title': title,
+                                'lokal': suggested_lokal,
+                                'status': final_status,
+                                # 'processing_log': full_log # Pole pominięte - brak w bazie danych
+                            }
+                        )
+                        processed_count += 1
 
                     except (ValueError, InvalidOperation, IndexError) as e:
                         skipped_rows.append((row_num, str(e)))
@@ -437,25 +480,65 @@ def upload_csv(request):
                 'skipped_rows': skipped_rows
             }
 
-            if uncategorized_rows:
-                request.session['uncategorized_rows'] = uncategorized_rows
+            if has_manual_work:
                 return redirect('categorize_transactions')
-            
-            context['upload_summary'] = request.session.pop('upload_summary', None)
-            context['transactions'] = FinancialTransaction.objects.all().order_by('-posting_date')
-            return redirect('upload_csv')
+            else:
+                messages.success(request, f"Import zakończony. Pomyślnie przetworzono {processed_count} transakcji.")
+                return redirect('upload_csv')
 
     return render(request, 'core/upload_csv.html', context)
 
+def reprocess_transactions(request):
+    # Wykluczamy transakcje edytowane ręcznie, aby ich nie nadpisać
+    transactions = FinancialTransaction.objects.exclude(status='MANUALLY_EDITED')
+    updated_count = 0
+
+    for transaction in transactions:
+        
+        title, title_status, title_log = get_title_from_description(transaction.description, transaction.contractor)
+        suggested_lokal, lokal_status, lokal_log = match_lokal_for_transaction(
+            transaction.description, 
+            transaction.contractor, 
+            transaction.amount, 
+            transaction.posting_date
+        )
+
+        final_status = 'PROCESSED'
+        if title_status == 'CONFLICT' or lokal_status == 'CONFLICT':
+            final_status = 'CONFLICT'
+        elif title_status == 'UNPROCESSED':
+            final_status = 'UNPROCESSED'
+            
+        full_log = f"Kategoryzacja Tytułu: {title_log} | Przypisanie Lokalu: {lokal_log}"
+
+        # Sprawdzamy czy coś się zmieniło, ignorując processing_log, którego brakuje w bazie danych
+        is_changed = (
+            transaction.title != title or
+            transaction.lokal != suggested_lokal or
+            transaction.status != final_status
+        )
+        if is_changed: # Oryginalne sprawdzenie zawierało: or transaction.processing_log != full_log
+            
+            transaction.title = title
+            transaction.lokal = suggested_lokal
+            transaction.status = final_status
+            # transaction.processing_log = full_log # Pole pominięte - brak w bazie danych
+            transaction.save()
+            updated_count += 1
+            
+    messages.success(request, f"Pomyślnie przetworzono ponownie transakcje. Zaktualizowano {updated_count} wpisów. Pominięto te edytowane ręcznie.")
+    return redirect('upload_csv')
 
 def categorize_transactions(request):
-    uncategorized_rows = request.session.get('uncategorized_rows', [])
+    transactions_to_process = FinancialTransaction.objects.filter(
+        status__in=['UNPROCESSED', 'CONFLICT']
+    ).order_by('-posting_date')
+    
     lokale = Lokal.objects.filter(is_active=True)
     
     context = {
-        'transactions': uncategorized_rows,
+        'transactions': transactions_to_process,
         'title_choices': FinancialTransaction.TITLE_CHOICES,
-        'upload_summary': request.session.get('upload_summary', {}),
         'lokale': lokale,
     }
     
@@ -463,60 +546,48 @@ def categorize_transactions(request):
 
 def save_categorization(request):
     if request.method == 'POST':
-        try:
-            transaction_count = int(request.POST.get('transaction_count', 0))
-        except ValueError:
-            transaction_count = 0
+        transaction_ids = request.POST.getlist('transaction_id')
 
-        for i in range(transaction_count):
-            idx = str(i)
-            transaction_id = request.POST.get(f'transaction_id_{idx}')
-            title = request.POST.get(f'title_{idx}')
-            keywords = request.POST.get(f'keywords_{idx}')
-            lokal_id = request.POST.get(f'lokal_id_{idx}')
-            lokal_keywords = request.POST.get(f'lokal_keywords_{idx}')
+        for trans_id in transaction_ids:
+            try:
+                transaction = FinancialTransaction.objects.get(id=trans_id)
+            except FinancialTransaction.DoesNotExist:
+                continue
+
+            title = request.POST.get(f'title_{trans_id}')
+            lokal_id = request.POST.get(f'lokal_id_{trans_id}')
             
-            # Pobieramy dane transakcji z ukrytych pól formularza
-            description = request.POST.get(f'description_{idx}')
-            posting_date = request.POST.get(f'posting_date_{idx}')
-            amount = request.POST.get(f'amount_{idx}')
-            contractor = request.POST.get(f'contractor_{idx}')
+            keywords = request.POST.get(f'keywords_{trans_id}')
+            lokal_keywords = request.POST.get(f'lokal_keywords_{trans_id}')
 
-            defaults = {
-                'description': description,
-                'posting_date': posting_date,
-                'amount': amount,
-                'contractor': contractor,
-                'title': title,
-                'lokal_id': lokal_id if lokal_id else None
-            }
+            # Aktualizacja transakcji
+            if title:
+                transaction.title = title
+            if lokal_id:
+                transaction.lokal_id = lokal_id
+            
+            # Oznaczamy jako ręcznie edytowane, aby chronić przed przyszłym automatycznym nadpisaniem
+            transaction.status = 'MANUALLY_EDITED'
+            # transaction.processing_log = "Transakcja została ręcznie skategoryzowana przez użytkownika." # Pole pominięte - brak w bazie danych
+            transaction.save()
 
-            if transaction_id and title:
-                FinancialTransaction.objects.update_or_create(
-                    transaction_id=transaction_id,
-                    defaults=defaults
+            # Tworzenie nowych reguł
+            if keywords and title:
+                CategorizationRule.objects.get_or_create(
+                    keywords=keywords.strip(),
+                    defaults={'title': title}
+                )
+            
+            if lokal_keywords and lokal_id:
+                LokalAssignmentRule.objects.get_or_create(
+                    keywords=lokal_keywords.strip(),
+                    defaults={'lokal_id': lokal_id}
                 )
 
-                if keywords:
-                    CategorizationRule.objects.get_or_create(
-                        keywords=keywords.strip(),
-                        defaults={'title': title}
-                    )
-                
-                if lokal_keywords and lokal_id:
-                    LokalAssignmentRule.objects.get_or_create(
-                        keywords=lokal_keywords.strip(),
-                        defaults={'lokal_id': lokal_id}
-                    )
-
-        # Czyścimy sesję
-        if 'uncategorized_rows' in request.session:
-            del request.session['uncategorized_rows']
-            
         messages.success(request, "Pomyślnie skategoryzowano i zapisano transakcje.")
         return redirect('upload_csv')
     
-    return redirect('upload_csv')
+    return redirect('categorize_transactions')
 
 def clear_all_transactions(request):
     if request.method == 'POST':
@@ -612,7 +683,10 @@ def edit_transaction(request, pk):
             transaction.lokal_id = new_lokal_id
         elif new_lokal_id == "":
             transaction.lokal = None
-            
+        
+        # Oznaczamy jako ręcznie edytowane
+        transaction.status = 'MANUALLY_EDITED'
+        # transaction.processing_log = "Transakcja została ręcznie zedytowana przez użytkownika." # Pole pominięte - brak w bazie danych
         transaction.save()
 
         if create_rule and keyword:

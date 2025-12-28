@@ -264,6 +264,13 @@ class FinancialTransaction(models.Model):
     ]
     title = models.CharField("Tytułem", max_length=100, choices=TITLE_CHOICES, blank=True, null=True)
 
+    STATUS_CHOICES = [
+        ('PROCESSED', 'Przetworzono'),
+        ('UNPROCESSED', 'Nieprzetworzono'),
+        ('CONFLICT', 'Konflikt'),
+    ]
+    status = models.CharField("Status", max_length=20, choices=STATUS_CHOICES, default='UNPROCESSED')
+
     class Meta:
         verbose_name = "Transakcja Finansowa"
         verbose_name_plural = "Transakcje Finansowe"

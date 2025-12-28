@@ -15,6 +15,7 @@
                     {{ form.as_p }}
                 </div>
                 <button type="submit" class="btn btn-primary">Importuj</button>
+                 <a href="{% url 'reprocess_transactions' %}" class="btn btn-info float-end me-2">Przetwórz ponownie</a>
                  <a href="{% url 'clear_all_transactions' %}" class="btn btn-danger float-end">Wyczyść wszystkie transakcje</a>
             </form>
         </div>
@@ -59,12 +60,23 @@
                     <label for="search_query" class="form-label">Szukaj (opis/kontrahent):</label>
                     <input type="text" name="search_query" id="search_query" value="{{ current_search_query|default:'' }}" class="form-control" placeholder="Wpisz tekst...">
                 </div>
-                <div class="col-md-3">
+                <div class="col-md-2">
                     <label for="category" class="form-label">Kategoria:</label>
                     <select name="category" id="category" class="form-select">
                         <option value="">-- Wszystkie --</option>
                         {% for code, name in title_choices %}
                             <option value="{{ code }}" {% if current_category == code %}selected{% endif %}>{{ name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <label for="lokal_id" class="form-label">Nr mieszkania:</label>
+                    <select name="lokal_id" id="lokal_id" class="form-select">
+                        <option value="">-- Wszystkie --</option>
+                        {% for lokal in lokale %}
+                            <option value="{{ lokal.id }}" {% if current_lokal_id == lokal.id|stringformat:"s" %}selected{% endif %}>
+                                {{ lokal.unit_number }}
+                            </option>
                         {% endfor %}
                     </select>
                 </div>
@@ -76,7 +88,7 @@
                     <label for="date_to" class="form-label">Do daty:</label>
                     <input type="date" name="date_to" id="date_to" value="{{ current_date_to|default:'' }}" class="form-control">
                 </div>
-                <div class="col-md-2">
+                <div class="col-auto">
                     <button type="submit" class="btn btn-primary w-100">Filtruj</button>
                     <a href="{% url 'upload_csv' %}" class="btn btn-secondary w-100 mt-2">Wyczyść</a>
                 </div>
@@ -106,6 +118,9 @@
                             {{ transaction.id }}
                             {% if transaction.is_split_payment %}
                                 <span title="Transakcja powstała w wyniku podziału">✂️</span>
+                            {% endif %}
+                            {% if transaction.status == 'MANUALLY_EDITED' %}
+                                <span title="Transakcja edytowana ręcznie">✋</span>
                             {% endif %}
                         </td>
                         <td>{{ transaction.posting_date }}</td>
