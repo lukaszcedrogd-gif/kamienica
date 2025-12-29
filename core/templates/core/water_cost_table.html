@@ -1,0 +1,43 @@
+{% extends "core/base.html" %}
+
+{% block content %}
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <h2>{{ title }}</h2>
+    <form method="get" action="{% url 'water_cost_table' %}" class="form-inline">
+      <label for="year-select" class="mr-2">Wybierz rok:</label>
+      <select name="year" id="year-select" class="form-control mr-2" onchange="this.form.submit()">
+        {% for year in available_years %}
+          <option value="{{ year }}" {% if year == selected_year %}selected{% endif %}>{{ year }}</option>
+        {% endfor %}
+      </select>
+    </form>
+  </div>
+
+  <table class="table table-bordered">
+    <thead>
+      <tr>
+        <th>Okres</th>
+        <th class="text-center">Cena jedn. [zł/m³]</th>
+        {% for lokal in lokals %}
+          <th class="text-center">Lokal {{ lokal.unit_number }}</th>
+        {% endfor %}
+        <th class="text-center">Suma</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in table_data %}
+        <tr>
+          <td>{{ row.report.name }}</td>
+          <td class="text-right">{{ row.report.unit_price|floatformat:4 }}</td>
+          {% for detail in row.details %}
+            <td class="text-right" style="font-size: 0.9em; line-height: 1.2;">
+                Zużycie: {{ detail.consumption|floatformat:3 }} m³<br>
+                <b>Koszt: {{ detail.cost|floatformat:2 }} zł</b>
+            </td>
+          {% endfor %}
+          <td class="text-right font-weight-bold">{{ row.total_cost|floatformat:2 }}</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% endblock %}

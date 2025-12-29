@@ -351,4 +351,36 @@ class MonthlyCharge(models.Model):
     def __str__(self):
         return f"Naliczenie dla {self.agreement} za {self.month_year.strftime('%Y-%m')} - {self.total_charge} PLN"
 
+# --- 13. Ręczne Ustawienia Kosztów Wody ---
+class WaterCostOverride(models.Model):
+    period_start_date = models.DateField(
+        "Początek okresu rozliczeniowego", 
+        unique=True, 
+        help_text="Pierwszy dzień pierwszego miesiąca okresu, np. 2025-01-01 dla Styczeń-Luty"
+    )
+    overridden_bill_amount = models.DecimalField(
+        "Ręcznie wprowadzona kwota rachunku za wodę", 
+        max_digits=10, 
+        decimal_places=2, 
+        null=True, 
+        blank=True
+    )
+    overridden_total_consumption = models.DecimalField(
+        "Ręcznie wprowadzone całkowite zużycie wody (m³)", 
+        max_digits=10, 
+        decimal_places=3, 
+        null=True, 
+        blank=True
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Rozliczenie wody"
+        verbose_name_plural = "Rozliczenia wody"
+        ordering = ['-period_start_date']
+
+    def __str__(self):
+        return f"Ustawienia dla okresu od {self.period_start_date.strftime('%Y-%m-%d')}"
+
     

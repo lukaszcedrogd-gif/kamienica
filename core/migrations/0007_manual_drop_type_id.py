@@ -14,8 +14,8 @@ class Migration(migrations.Migration):
         # still exist in the database schema, causing IntegrityError.
         # We use 'DROP COLUMN IF EXISTS' to avoid errors if the column
         # has somehow been removed in the meantime.
-        migrations.RunSQL(
-            sql="ALTER TABLE core_financialtransaction DROP COLUMN type_id;",
-            reverse_sql=migrations.RunSQL.noop, # We don't want to recreate the column
-        )
+        # migrations.RunSQL(
+        #     sql="ALTER TABLE core_financialtransaction DROP COLUMN type_id;",
+        #     reverse_sql=migrations.RunSQL.noop, # We don't want to recreate the column
+        # )
     ]

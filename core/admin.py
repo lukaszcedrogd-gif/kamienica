@@ -10,7 +10,15 @@ from .models import (
     FinancialTransaction,
     LokalAssignmentRule,
     LocalPhoto,
+    WaterCostOverride,
 )
+
+@admin.register(WaterCostOverride)
+class WaterCostOverrideAdmin(admin.ModelAdmin):
+    list_display = ('period_start_date', 'overridden_bill_amount', 'overridden_total_consumption', 'updated_at')
+    list_editable = ('overridden_bill_amount', 'overridden_total_consumption')
+    list_display_links = ('period_start_date',)
+
 
 admin.site.register(User)
 admin.site.register(Lokal)

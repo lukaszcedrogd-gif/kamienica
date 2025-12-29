@@ -6,6 +6,7 @@ urlpatterns = [
     path('', views.user_list, name='user_list'),
     path('lokale/', views.lokal_list, name='lokal_list'),
     path('agreements/', views.agreement_list, name='agreement_list'),
+    path('bimonthly-reports/', views.bimonthly_report_list_view, name='bimonthly_report_list'),
     path('meter_readings/', views.meter_readings_view, name='meter_readings'),
     path('meter-consumption-report/', views.meter_consumption_report, name='meter-consumption-report'),
     path('upload_csv/', views.upload_csv, name='upload_csv'),
@@ -14,6 +15,8 @@ urlpatterns = [
     path('save_categorization/', views.save_categorization, name='save_categorization'),
     path('clear_transactions/', views.clear_all_transactions, name='clear_all_transactions'),
     path('fixed-costs/', views.fixed_costs_view, name='fixed_costs_list'),
+    path('water-cost-summary/', views.water_cost_summary_view, name='water_cost_summary'),
+    path('water-cost-table/', views.water_cost_table, name='water_cost_table'),
 
     # Rule Management
     path('rules/', views.rule_list, name='rule_list'),
