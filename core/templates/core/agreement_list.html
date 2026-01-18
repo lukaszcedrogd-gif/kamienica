@@ -35,11 +35,13 @@
                     <td>{{ agreement.end_date|default:"Brak" }}</td>
                     <td>{{ agreement.rent_amount }} PLN</td>
                     <td>
-                        <a href="{% url 'agreement-edit' agreement.pk %}" class="btn btn-sm btn-warning">Edytuj</a>
-                        <a href="{% url 'terminate_agreement' agreement.pk %}" class="btn btn-sm btn-info">Zakończ umowę</a>
+                        <a href="{% url 'agreement-edit' agreement.pk %}" class="btn btn-sm btn-outline-primary">Edytuj</a>
+                        <a href="{% url 'terminate_agreement' agreement.pk %}" class="btn btn-sm btn-outline-secondary">Zakończ</a>
+                        <a href="{% url 'settlement' agreement.pk %}" class="btn btn-sm btn-info">Rozliczenie</a>
+                        <a href="{% url 'annual_agreement_report' pk=agreement.pk %}" class="btn btn-sm btn-success">Raport Roczny</a>
                         <form method="post" action="{% url 'agreement-delete' agreement.pk %}" style="display:inline;" onsubmit="return confirm('Czy na pewno chcesz usunąć tę umowę?');">
                             {% csrf_token %}
-                            <button type="submit" class="btn btn-sm btn-danger">Usuń</button>
+                            <button type="submit" class="btn btn-sm btn-outline-danger">Usuń</button>
                         </form>
                     </td>
                 </tr>

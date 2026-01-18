@@ -11,6 +11,7 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 
 from pathlib import Path
+from decouple import config
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -83,7 +84,7 @@ DATABASES = {
         'ENGINE': 'django.db.backends.mysql',
         'NAME': 'kamienicaDB',  # Uzupełnij nazwę swojej bazy danych
         'USER': 'root',      # Uzupełnij nazwę użytkownika bazy danych
-        'PASSWORD': 'Lukas.123',  # Uzupełnij hasło do bazy danych
+        'PASSWORD': config('DB_PASSWORD'),  # Uzupełnij hasło do bazy danych
         'HOST': 'localhost',            # Domyślnie 'localhost' lub adres IP serwera bazy danych
         'PORT': '3306',                 # Domyślny port MySQL to 3306
     }

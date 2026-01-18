@@ -18,6 +18,17 @@ from collections import defaultdict
 from .models import Lokal, Meter, WaterCostOverride
 from .forms import LokalForm
 
+# PDF Generation Imports
+import io
+from django.http import FileResponse
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.units import inch
+from reportlab.lib import colors
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
+
 
 # --- List Views ---
 
@@ -998,11 +1009,11 @@ def bimonthly_report_view(request, pk):
         selected_year = date.today().year
     
     current_year = date.today().year
-    available_years = list(range(current_year, current_year - 6, -1))
+    available_years = list(range(current_year, current_year - 5, -1))
 
     # --- Pre-calculate all consumptions for the lokal ---
     period_data_map = defaultdict(lambda: {
-        'consumption_by_meter': defaultdict(lambda: {'consumption': Decimal('0.00')}),
+        'consumption_by_meter': defaultdict(lambda: {'consumption': Decimal('0.00'), 'start_reading': None, 'end_reading': None}),
         'total_consumption': Decimal('0.00')
     })
     
@@ -1014,34 +1025,68 @@ def bimonthly_report_view(request, pk):
             start_reading, end_reading = readings[i-1], readings[i]
             consumption = end_reading.value - start_reading.value
             
+            # Correct period assignment logic
             end_date = end_reading.reading_date
-            # Move date back to assign consumption to the period the reading *closes*
-            effective_date = end_date - relativedelta(months=2)
-            period_start_month = ((effective_date.month - 1) // 2) * 2 + 1
-            period_start_date = date(effective_date.year, period_start_month, 1)
+            period_start_month = ((end_date.month - 1) // 2) * 2 + 1
+            # Handle edge case where reading is early in the month, belongs to previous period
+            if end_date.day < 15 and end_date.month % 2 != 0:
+                 # e.g., reading on March 5th should likely close Jan-Feb period
+                 effective_date = end_date - relativedelta(months=2)
+                 period_start_month = ((effective_date.month - 1) // 2) * 2 + 1
+                 period_start_date = date(effective_date.year, period_start_month, 1)
+            else:
+                 period_start_date = date(end_date.year, period_start_month, 1)
+
             
             meter_display_name = f"{meter.get_type_display()} ({meter.serial_number})"
             
-            # Accumulate data
             data = period_data_map[period_start_date]
             data['total_consumption'] += consumption
             data['consumption_by_meter'][meter_display_name]['consumption'] += consumption
-            # Storing last reading pair for context, might not be perfect if multiple pairs fall in a period
             data['consumption_by_meter'][meter_display_name]['start_reading'] = start_reading
             data['consumption_by_meter'][meter_display_name]['end_reading'] = end_reading
 
+    # --- Pre-calculate consumptions for ALL lokals (for unit price calculation) ---
+    all_lokals_consumptions = defaultdict(lambda: defaultdict(Decimal))
+    all_active_lokals = Lokal.objects.filter(is_active=True).exclude(unit_number__iexact='kamienica')
+    all_water_meters = Meter.objects.filter(
+        lokal__in=all_active_lokals,
+        type__in=['hot_water', 'cold_water'],
+        status='aktywny'
+    ).select_related('lokal').prefetch_related('readings')
+
+    for meter in all_water_meters:
+        readings = list(meter.readings.all().order_by('reading_date'))
+        for i in range(1, len(readings)):
+            start_reading, end_reading = readings[i-1], readings[i]
+            consumption = end_reading.value - start_reading.value
+            
+            end_date = end_reading.reading_date
+            period_start_month = ((end_date.month - 1) // 2) * 2 + 1
+            if end_date.day < 15 and end_date.month % 2 != 0:
+                effective_date = end_date - relativedelta(months=2)
+                period_start_month = ((effective_date.month - 1) // 2) * 2 + 1
+                period_key = date(effective_date.year, period_start_month, 1)
+            else:
+                period_key = date(end_date.year, period_start_month, 1)
+
+            all_lokals_consumptions[period_key][meter.lokal_id] += consumption
+
+
     # --- Assemble final report data for the selected year ---
     report_data = []
-    for month_start_num in range(1, 13, 2):
-        period_start = date(selected_year, month_start_num, 1)
-        
-        # Get pre-calculated data, or empty defaults
+    all_lokals_total_consumption_for_context = None
+
+    # Iterate only over periods that have data and are in the selected year
+    sorted_periods = sorted([p for p in period_data_map.keys() if p.year == selected_year], reverse=True)
+
+    for period_start in sorted_periods:
         period_consumptions = period_data_map[period_start]
+        period_end = period_start + relativedelta(months=2, days=-1)
         
-        # Create the main dictionary for the period
         period_dict = {
             'period_start_date': period_start,
-            'period_end_date': period_start + relativedelta(months=2, days=-1),
+            'period_end_date': period_end,
             'consumption_by_meter': dict(period_consumptions['consumption_by_meter']),
             'total_consumption': period_consumptions['total_consumption'],
             'water_cost_details': {},
@@ -1050,19 +1095,20 @@ def bimonthly_report_view(request, pk):
         
         # --- Calculate costs for the period ---
         # 1. Water Cost
-        water_cost_override = WaterCostOverride.objects.filter(period_start_date=period_start).first()
         bill_amount, source = None, 'Brak danych'
+        
+        water_cost_override = WaterCostOverride.objects.filter(period_start_date=period_start).first()
         if water_cost_override and water_cost_override.overridden_bill_amount is not None:
             bill_amount = water_cost_override.overridden_bill_amount
             source = 'Ręczne ustawienie (admin)'
 
-        total_building_consumption, consumption_source = None, 'Brak danych'
-        if water_cost_override and water_cost_override.overridden_total_consumption is not None:
-            total_building_consumption = water_cost_override.overridden_total_consumption
-            consumption_source = 'Ręczne ustawienie (admin)'
+
+        # Calculate total consumption for ALL lokals for this period
+        total_building_consumption = sum(all_lokals_consumptions[period_start].values())
+        consumption_source = 'Suma liczników'
 
         unit_price = Decimal('0.00')
-        if bill_amount and total_building_consumption and total_building_consumption > 0:
+        if bill_amount and total_building_consumption > 0:
             unit_price = bill_amount / total_building_consumption
         
         lokal_water_cost = period_dict['total_consumption'] * unit_price
@@ -1071,7 +1117,8 @@ def bimonthly_report_view(request, pk):
             'bill_amount': bill_amount, 'source': source,
             'total_building_consumption': total_building_consumption,
             'consumption_source': consumption_source, 'unit_price': unit_price,
-            'lokal_water_cost': lokal_water_cost, 'override_obj': water_cost_override
+            'lokal_water_cost': lokal_water_cost.quantize(Decimal('0.01')),
+            'override_obj': water_cost_override
         }
 
         # 2. Waste Cost (if agreement exists)
@@ -1081,8 +1128,11 @@ def bimonthly_report_view(request, pk):
                 period_dict['waste_cost'] = (waste_rule.amount * agreement.number_of_occupants * 2)
 
         report_data.append(period_dict)
+        
+        # Set the total consumption for all lokals for the latest period (for context/test)
+        if all_lokals_total_consumption_for_context is None:
+             all_lokals_total_consumption_for_context = total_building_consumption
 
-    report_data.sort(key=lambda p: p['period_start_date'], reverse=True)
 
     context = {
         'lokal': lokal,
@@ -1091,8 +1141,186 @@ def bimonthly_report_view(request, pk):
         'report_data': report_data,
         'available_years': available_years,
         'selected_year': selected_year,
+        'all_lokals_total_consumption': all_lokals_total_consumption_for_context
     }
     return render(request, 'core/bimonthly_report.html', context)
+
+
+def _get_annual_report_context(agreement, selected_year):
+    lokal = agreement.lokal
+    current_date = date.today()
+    current_year = current_date.year
+    available_years = list(range(current_year, current_year - 5, -1))
+    
+    year_start = date(selected_year, 1, 1)
+    year_end = date(selected_year, 12, 31)
+
+    # --- RENT SCHEDULE CALCULATION ---
+    rent_schedule = []
+    total_rent = Decimal('0.00')
+    month_names = [
+        "Styczeń", "Luty", "Marzec", "Kwiecień", "Maj", "Czerwiec", 
+        "Lipiec", "Sierpień", "Wrzesień", "Październik", "Listopad", "Grudzień"
+    ]
+    
+    limit_month = 12
+    if selected_year == current_year:
+        limit_month = current_date.month
+
+    for i, month_name in enumerate(month_names[:limit_month], 1):
+        current_month = date(selected_year, i, 1)
+        month_end = current_month + relativedelta(months=1, days=-1)
+        monthly_rent = Decimal('0.00')
+
+        agreement_starts_before_month_end = agreement.start_date <= month_end
+        agreement_ends_after_month_start = agreement.end_date is None or agreement.end_date >= current_month
+
+        if agreement_starts_before_month_end and agreement_ends_after_month_start:
+            date_in_month = datetime.datetime(selected_year, i, 15)
+            historical_record = agreement.history.filter(history_date__lte=date_in_month).order_by('-history_date').first()
+            
+            if historical_record:
+                monthly_rent = historical_record.rent_amount
+            else:
+                if agreement.start_date <= date_in_month.date():
+                     monthly_rent = agreement.rent_amount
+        
+        rent_schedule.append({'month_name': month_name, 'rent': monthly_rent})
+        total_rent += monthly_rent
+        
+    # --- PAYMENTS ---
+    payments = FinancialTransaction.objects.filter(
+        lokal=lokal,
+        amount__gt=0,
+        posting_date__range=(year_start, year_end)
+    ).order_by('posting_date')
+
+    cumulative_payments = []
+    running_total = Decimal('0.00')
+    for payment in payments:
+        running_total += payment.amount
+        cumulative_payments.append({
+            'date': payment.posting_date,
+            'amount': payment.amount,
+            'running_total': running_total,
+            'description': payment.title
+        })
+    
+    total_payments = running_total
+
+    # --- BIMONTHLY CALCULATIONS (Waste & Water) ---
+    all_lokals_consumptions = defaultdict(lambda: defaultdict(Decimal))
+    all_active_lokals = Lokal.objects.filter(is_active=True).exclude(unit_number__iexact='kamienica')
+    all_water_meters = Meter.objects.filter(
+        lokal__in=all_active_lokals, type__in=['hot_water', 'cold_water'], status='aktywny'
+    ).select_related('lokal').prefetch_related('readings')
+
+    for meter in all_water_meters:
+        readings = list(meter.readings.all().order_by('reading_date'))
+        for i in range(1, len(readings)):
+            start_reading, end_reading = readings[i-1], readings[i]
+            end_date = end_reading.reading_date
+            if end_date.year == selected_year:
+                period_start_month = ((end_date.month - 1) // 2) * 2 + 1
+                if end_date.day < 15 and end_date.month % 2 != 0:
+                    effective_date = end_date - relativedelta(months=2)
+                    period_start_month = ((effective_date.month - 1) // 2) * 2 + 1
+                    period_key = date(effective_date.year, period_start_month, 1)
+                else:
+                    period_key = date(end_date.year, period_start_month, 1)
+                
+                if period_key.year == selected_year:
+                    consumption = end_reading.value - start_reading.value
+                    all_lokals_consumptions[period_key][meter.lokal_id] += consumption
+
+    bimonthly_data = []
+    month_start_num = 1
+    for name in ["styczeń-luty", "marzec-kwiecień", "maj-czerwiec", "lipiec-sierpień", "wrzesień-październik", "listopad-grudzień"]:
+        period_start_date = date(selected_year, month_start_num, 1)
+        
+        if selected_year == current_year and period_start_date > current_date:
+            break
+
+        bimonthly_data.append({
+            'name': f"{name} {selected_year}", 'period_start': period_start_date,
+            'period_end': period_start_date + relativedelta(months=2, days=-1),
+            'waste_cost': Decimal('0.00'), 'water_consumption': Decimal('0.00'),
+            'water_cost': Decimal('0.00'), 'meter_details': []
+        })
+        month_start_num += 2
+
+    lokal_meters = Meter.objects.filter(lokal=lokal, type__in=['hot_water', 'cold_water'], status='aktywny')
+    for meter in lokal_meters:
+        all_readings_for_meter = list(meter.readings.filter(reading_date__lt=year_end + relativedelta(months=2)).order_by('reading_date'))
+        last_reading_before_year = meter.readings.filter(reading_date__lt=year_start).order_by('-reading_date').first()
+        if last_reading_before_year and last_reading_before_year not in all_readings_for_meter:
+            all_readings_for_meter.insert(0, last_reading_before_year)
+        
+        unique_readings = sorted(list({r.id: r for r in all_readings_for_meter}.values()), key=lambda r: r.reading_date)
+
+        for i in range(1, len(unique_readings)):
+            start_r, end_r = unique_readings[i-1], unique_readings[i]
+            end_date = end_r.reading_date
+            if not (year_start <= end_date < year_end + relativedelta(months=2)): continue
+
+            period_start_month = ((end_date.month - 1) // 2) * 2 + 1
+            if end_date.day < 15 and end_date.month % 2 != 0:
+                 effective_date = end_date - relativedelta(months=2)
+                 period_start_month = ((effective_date.month - 1) // 2) * 2 + 1
+                 period_key = date(effective_date.year, period_start_month, 1)
+            else:
+                 period_key = date(end_date.year, period_start_month, 1)
+            
+            if period_key.year != selected_year: continue
+
+            for period in bimonthly_data:
+                if period['period_start'] == period_key:
+                    consumption = end_r.value - start_r.value
+                    period['water_consumption'] += consumption
+                    period['meter_details'].append({'meter': meter, 'start_reading': start_r, 'end_reading': end_r, 'consumption': consumption})
+                    break
+    
+    total_water_cost_year, total_waste_cost_year, total_water_consumption_year = Decimal('0.00'), Decimal('0.00'), Decimal('0.00')
+    for period in bimonthly_data:
+        waste_rule = FixedCost.objects.filter(name__icontains="śmieci", calculation_method='per_person', effective_date__lte=period['period_start']).order_by('-effective_date').first()
+        if waste_rule: period['waste_cost'] = (waste_rule.amount * agreement.number_of_occupants * 2)
+        
+        total_building_consumption = sum(all_lokals_consumptions[period['period_start']].values())
+        water_cost_override = WaterCostOverride.objects.filter(period_start_date=period['period_start']).first()
+        unit_price = Decimal('0.00')
+        if water_cost_override and water_cost_override.overridden_bill_amount and total_building_consumption > 0:
+            unit_price = water_cost_override.overridden_bill_amount / total_building_consumption
+        
+        period['water_cost'] = period['water_consumption'] * unit_price
+        total_waste_cost_year += period['waste_cost']
+        total_water_cost_year += period['water_cost']
+        total_water_consumption_year += period['water_consumption']
+
+    total_costs = total_rent + total_waste_cost_year + total_water_cost_year
+    final_balance = total_payments - total_costs
+
+    return {
+        'agreement': agreement, 'title': f"Raport roczny dla lokalu {lokal.unit_number} ({selected_year})",
+        'selected_year': selected_year, 'available_years': available_years,
+        'rent_schedule': rent_schedule, 'total_rent': total_rent,
+        'total_payments': total_payments, 
+        'cumulative_payments': cumulative_payments,
+        'bimonthly_data': bimonthly_data,
+        'total_waste_cost_year': total_waste_cost_year, 'total_water_cost_year': total_water_cost_year,
+        'total_water_consumption_year': total_water_consumption_year,
+        'total_costs': total_costs, 'final_balance': final_balance,
+    }
+
+def annual_agreement_report(request, pk):
+    agreement = get_object_or_404(Agreement, pk=pk)
+    try:
+        selected_year = int(request.GET.get('year', date.today().year))
+    except (ValueError, TypeError):
+        selected_year = date.today().year
+    
+    context = _get_annual_report_context(agreement, selected_year)
+    return render(request, 'core/annual_agreement_report.html', context)
+
 
 def water_cost_summary_view(request):
     if request.method == 'POST':
@@ -1225,11 +1453,16 @@ def water_cost_table(request):
             consumption = end_reading.value - start_reading.value
             
             end_date = end_reading.reading_date
-            # Move date back to assign consumption to the period the reading *closes*
-            effective_date = end_date - relativedelta(months=2)
-            period_start_month = ((effective_date.month - 1) // 2) * 2 + 1
-            period_key = date(effective_date.year, period_start_month, 1)
-            
+            period_start_month = ((end_date.month - 1) // 2) * 2 + 1
+            # Handle edge case where reading is early in the month, belongs to previous period
+            if end_date.day < 15 and end_date.month % 2 != 0:
+                 # e.g., reading on March 5th should likely close Jan-Feb period
+                 effective_date = end_date - relativedelta(months=2)
+                 period_start_month = ((effective_date.month - 1) // 2) * 2 + 1
+                 period_key = date(effective_date.year, period_start_month, 1)
+            else:
+                 period_key = date(end_date.year, period_start_month, 1)
+
             consumptions[period_key][meter.lokal_id] += consumption
 
     # --- Period and Cost Structuring (uses selected_year) ---
@@ -1244,11 +1477,18 @@ def water_cost_table(request):
         period_start_date = date(selected_year, month_start_num, 1)
         period_end_date = period_start_date + relativedelta(months=2, days=-1)
         
+        # 1. Oblicz całkowite zużycie dla okresu
+        total_row_consumption = Decimal('0.00')
+        for lokal in lokals:
+            total_row_consumption += consumptions[period_start_date].get(lokal.id, Decimal('0.00'))
+
+        # 2. Oblicz cenę jednostkową na podstawie obliczonego zużycia
         override_obj = WaterCostOverride.objects.filter(period_start_date=period_start_date).first()
         unit_price = Decimal('0.00')
-        if override_obj and override_obj.overridden_bill_amount and override_obj.overridden_total_consumption and override_obj.overridden_total_consumption > 0:
-            unit_price = override_obj.overridden_bill_amount / override_obj.overridden_total_consumption
+        if override_obj and override_obj.overridden_bill_amount and total_row_consumption > 0:
+            unit_price = override_obj.overridden_bill_amount / total_row_consumption
 
+        # 3. Zbuduj wiersz danych dla szablonu
         row = {
             'report': {
                 'name': f"{name} {selected_year}",
@@ -1270,6 +1510,7 @@ def water_cost_table(request):
             total_row_cost += cost
             
         row['total_cost'] = total_row_cost
+        row['total_consumption'] = total_row_consumption # Już obliczone
         table_data.append(row)
         
         month_start_num += 2
@@ -1284,3 +1525,135 @@ def water_cost_table(request):
         'selected_year': selected_year,
     }
     return render(request, 'core/water_cost_table.html', context)
+import os
+from Kamienica.settings import BASE_DIR
+# ... (other imports)
+
+def annual_report_pdf(request, pk):
+    agreement = get_object_or_404(Agreement, pk=pk)
+    try:
+        selected_year = int(request.GET.get('year', date.today().year))
+    except (ValueError, TypeError):
+        selected_year = date.today().year
+
+    context = _get_annual_report_context(agreement, selected_year)
+
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=72, leftMargin=72, topMargin=72, bottomMargin=18)
+    
+    # --- Font Registration ---
+    font_name = 'Helvetica'
+    font_name_bold = 'Helvetica-Bold'
+    try:
+        font_path_regular = os.path.join(BASE_DIR, 'Roboto', 'static', 'Roboto-Regular.ttf')
+        font_path_bold = os.path.join(BASE_DIR, 'Roboto', 'static', 'Roboto-Bold.ttf')
+        
+        pdfmetrics.registerFont(TTFont('Roboto-Regular', font_path_regular))
+        pdfmetrics.registerFont(TTFont('Roboto-Bold', font_path_bold))
+        pdfmetrics.registerFontFamily('Roboto', normal='Roboto-Regular', bold='Roboto-Bold')
+        
+        font_name = 'Roboto-Regular'
+        font_name_bold = 'Roboto-Bold'
+    except:
+        # Fallback to default fonts if local files are not found
+        pass
+
+    styles = getSampleStyleSheet()
+    styles['Normal'].fontName = font_name
+    styles['h1'].fontName = font_name_bold
+    styles['h2'].fontName = font_name_bold
+    styles['h1'].alignment = 1
+
+    elements = []
+
+    elements.append(Paragraph(context['title'], styles['h1']))
+    elements.append(Spacer(1, 0.25*inch))
+
+    elements.append(Paragraph('Podsumowanie roczne', styles['h2']))
+    summary_data = [
+        ['Suma wpłat:', f"{context['total_payments']:.2f} zł"],
+        ['Należny czynsz:', f"{context['total_rent']:.2f} zł"],
+        ['Wywóz śmieci:', f"{context['total_waste_cost_year']:.2f} zł"],
+        ['Woda:', f"{context['total_water_cost_year']:.2f} zł"],
+        ['Suma kosztów:', f"{context['total_costs']:.2f} zł"],
+        ['Bilans:', f"{context['final_balance']:.2f} zł"]
+    ]
+    summary_table = Table(summary_data, colWidths=[2.5*inch, 2.5*inch])
+    summary_table.setStyle(TableStyle([
+        ('FONTNAME', (0,0), (-1,-1), font_name),
+        ('ALIGN', (0,0), (-1,-1), 'LEFT'),
+        ('FONTNAME', (0,4), (0,4), font_name_bold),
+        ('FONTNAME', (0,5), (0,5), font_name_bold),
+    ]))
+    elements.append(summary_table)
+    elements.append(Spacer(1, 0.25*inch))
+    
+    elements.append(Paragraph('Harmonogram Czynszu', styles['h2']))
+    rent_data = [['Miesiąc', 'Należny Czynsz']]
+    for item in context['rent_schedule']:
+        rent_data.append([item['month_name'], f"{item['rent']:.2f} zł"])
+    rent_data.append(['Suma:', f"{context['total_rent']:.2f} zł"])
+    rent_table = Table(rent_data, colWidths=[2.5*inch, 2.5*inch])
+    rent_table.setStyle(TableStyle([
+        ('BACKGROUND', (0,0), (-1,0), colors.gray),
+        ('TEXTCOLOR',(0,0),(-1,0),colors.whitesmoke),
+        ('ALIGN', (0,0), (-1,-1), 'RIGHT'),
+        ('ALIGN', (0,0), (0,-1), 'LEFT'),
+        ('FONTNAME', (0,0), (-1,-1), font_name),
+        ('FONTNAME', (0,0), (-1,0), font_name_bold),
+        ('FONTNAME', (0,-1), (-1,-1), font_name_bold),
+        ('GRID', (0,0), (-1,-1), 1, colors.black),
+    ]))
+    elements.append(rent_table)
+    elements.append(Spacer(1, 0.25*inch))
+
+    # Bimonthly data
+    elements.append(Paragraph('Zestawienie dwumiesięczne kosztów wody i wywozu śmieci', styles['h2']))
+    bimonthly_header = ['Okres', 'Wywóz śmieci', 'Zużycie wody', 'Koszt wody']
+    bimonthly_table_data = [bimonthly_header]
+    for p in context['bimonthly_data']:
+        bimonthly_table_data.append([
+            p['name'],
+            f"{p['waste_cost']:.2f} zł",
+            f"{p['water_consumption']:.3f} m³",
+            f"{p['water_cost']:.2f} zł"
+        ])
+    bimonthly_table_data.append(['Suma roczna:', f"{context['total_waste_cost_year']:.2f} zł", f"{context['total_water_consumption_year']:.3f} m³", f"{context['total_water_cost_year']:.2f} zł"])
+    bimonthly_table = Table(bimonthly_table_data)
+    bimonthly_table.setStyle(TableStyle([
+       ('BACKGROUND', (0,0), (-1,0), colors.gray),
+       ('TEXTCOLOR',(0,0),(-1,0),colors.whitesmoke),
+       ('ALIGN', (0,0), (-1,-1), 'RIGHT'),
+       ('ALIGN', (0,0), (0,-1), 'LEFT'),
+       ('FONTNAME', (0,0), (-1,-1), font_name),
+       ('FONTNAME', (0,0), (-1,0), font_name_bold),
+       ('GRID', (0,0), (-1,-1), 1, colors.black),
+       ('FONTNAME', (0,-1), (-1,-1), font_name_bold),
+    ]))
+    elements.append(bimonthly_table)
+    elements.append(Spacer(1, 0.5*inch))
+
+    # Payments
+    elements.append(Paragraph('Wpłaty', styles['h2']))
+    payment_data = [['Data', 'Opis', 'Kwota']]
+    for p in context['cumulative_payments']:
+        payment_data.append([p['date'].strftime('%Y-%m-%d'), p['description'] or '', f"{p['amount']:.2f} zł"])
+    payment_data.append(['', 'Suma wpłat:', f"{context['total_payments']:.2f} zł"])
+    payment_table = Table(payment_data, colWidths=[1*inch, 2.7*inch, 1.3*inch])
+    payment_table.setStyle(TableStyle([
+        ('BACKGROUND', (0,0), (-1,0), colors.gray),
+        ('TEXTCOLOR',(0,0),(-1,0),colors.whitesmoke),
+        ('ALIGN', (0,0), (-1,-1), 'RIGHT'),
+        ('ALIGN', (0,0), (1,-1), 'LEFT'),
+        ('FONTNAME', (0,0), (-1,-1), font_name),
+        ('FONTNAME', (0,0), (-1,0), font_name_bold),
+        ('GRID', (0,0), (-1,-1), 1, colors.black),
+        ('FONTNAME', (0,-1), (-1,-1), font_name_bold),
+    ]))
+    elements.append(payment_table)
+
+    doc.build(elements)
+    buffer.seek(0)
+    
+    filename = f"raport_roczny_{context['agreement'].lokal.unit_number}_{selected_year}.pdf"
+    return FileResponse(buffer, as_attachment=True, filename=filename)

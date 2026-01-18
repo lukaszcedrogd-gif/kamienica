@@ -1,0 +1,165 @@
+{% extends "core/base.html" %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h2>{{ title }}</h2>
+  <div class="d-flex align-items-center">
+    <form method="get" action="{% url 'annual_agreement_report' pk=agreement.pk %}" class="form-inline mr-3">
+      <label for="year-select" class="mr-2">Wybierz rok:</label>
+      <select name="year" id="year-select" class="form-control mr-2" onchange="this.form.submit()">
+        {% for year in available_years %}
+        <option value="{{ year }}" {% if year == selected_year %}selected{% endif %}>{{ year }}</option>
+        {% endfor %}
+      </select>
+    </form>
+    <a href="{% url 'annual_report_pdf' pk=agreement.pk %}?year={{ selected_year }}" class="btn btn-primary">Pobierz PDF</a>
+  </div>
+</div>
+
+<div class="card mb-4">
+  <div class="card-header">
+    <strong>Podsumowanie roczne {{ selected_year }}</strong>
+  </div>
+  <div class="card-body">
+    <div class="row">
+      <div class="col-md-4">
+        <h5 class="card-title">Przychody</h5>
+        <p class="card-text">Suma wpłat: <strong>{{ total_payments|floatformat:2 }} zł</strong></p>
+      </div>
+      <div class="col-md-4">
+        <h5 class="card-title">Koszty</h5>
+        <p class="card-text">Należny czynsz: {{ total_rent|floatformat:2 }} zł</p>
+        <p class="card-text">Wywóz śmieci: {{ total_waste_cost_year|floatformat:2 }} zł</p>
+        <p class="card-text">Woda: {{ total_water_cost_year|floatformat:2 }} zł</p>
+        <hr>
+        <p class="card-text"><strong>Suma kosztów: {{ total_costs|floatformat:2 }} zł</strong></p>
+      </div>
+      <div class="col-md-4">
+        <h5 class="card-title">Bilans</h5>
+        <h4 class="font-weight-bold {% if final_balance >= 0 %}text-success{% else %}text-danger{% endif %}">
+          {{ final_balance|floatformat:2 }} zł
+        </h4>
+        <small>({{ total_payments|floatformat:2 }} zł - {{ total_costs|floatformat:2 }} zł)</small>
+      </div>
+    </div>
+  </div>
+</div>
+
+<h4 class="mt-4">Harmonogram Czynszu {{ selected_year }}</h4>
+<div class="table-responsive" style="max-width: 400px;">
+    <table class="table table-sm table-striped">
+        <thead class="thead-light">
+            <tr>
+            <th>Miesiąc</th>
+            <th class="text-right">Należny Czynsz</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for item in rent_schedule %}
+            <tr>
+            <td>{{ item.month_name }}</td>
+            <td class="text-right">{{ item.rent|floatformat:2 }} zł</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+        <tfoot class="font-weight-bold">
+            <tr>
+            <td class="text-right">Suma:</td>
+            <td class="text-right">{{ total_rent|floatformat:2 }} zł</td>
+            </tr>
+        </tfoot>
+    </table>
+</div>
+
+<h4 class="mt-5">Zestawienie dwumiesięczne kosztów wody i wywozu śmieci</h4>
+<table class="table table-bordered">
+  <thead class="thead-light">
+    <tr>
+      <th scope="col">Okres</th>
+      <th scope="col" class="text-center">Wywóz śmieci</th>
+      <th scope="col">Szczegóły zużycia wody</th>
+      <th scope="col" class="text-center">Suma zużycia wody</th>
+      <th scope="col" class="text-center">Koszt wody</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for period in bimonthly_data %}
+    <tr>
+      <td><strong>{{ period.name }}</strong></td>
+      <td class="text-right">{{ period.waste_cost|floatformat:2 }} zł</td>
+      <td>
+        {% if period.meter_details %}
+          <table class="table table-sm table-borderless mb-0">
+            {% for detail in period.meter_details %}
+              <tr>
+                <td style="width: 50%;">
+                    <small>{{ detail.meter.get_type_display }} ({{ detail.meter.serial_number }})</small>
+                </td>
+                <td class="text-right" style="width: 50%;">
+                  <small>
+                  {{ detail.end_reading.reading_date|date:"Y-m-d" }}: {{ detail.end_reading.value|floatformat:3 }}<br>
+                  {{ detail.start_reading.reading_date|date:"Y-m-d" }}: {{ detail.start_reading.value|floatformat:3 }}<br>
+                  <strong>Różnica: {{ detail.consumption|floatformat:3 }} m³</strong>
+                  </small>
+                </td>
+              </tr>
+            {% endfor %}
+          </table>
+        {% else %}
+          <span class="text-muted">Brak odczytów</span>
+        {% endif %}
+      </td>
+      <td class="text-right align-middle"><strong>{{ period.water_consumption|floatformat:3 }} m³</strong></td>
+      <td class="text-right align-middle">{{ period.water_cost|floatformat:2 }} zł</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+  <tfoot class="font-weight-bold">
+    <tr>
+        <td class="text-right">Suma roczna:</td>
+        <td class="text-right">{{ total_waste_cost_year|floatformat:2 }} zł</td>
+        <td></td>
+        <td class="text-right">{{ total_water_consumption_year|floatformat:3 }} m³</td>
+        <td class="text-right">{{ total_water_cost_year|floatformat:2 }} zł</td>
+    </tr>
+  </tfoot>
+</table>
+
+<h4 class="mt-4">Wpłaty {{ selected_year }}</h4>
+<div class="table-responsive">
+    <table class="table table-sm table-striped">
+        <thead class="thead-light">
+            <tr>
+                <th>Data</th>
+                <th>Opis</th>
+                <th class="text-right">Kwota</th>
+                <th class="text-right">Suma narastająco</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for payment in cumulative_payments %}
+            <tr>
+                <td>{{ payment.date|date:"Y-m-d" }}</td>
+                <td>{{ payment.description }}</td>
+                <td class="text-right">{{ payment.amount|floatformat:2 }} zł</td>
+                <td class="text-right">{{ payment.running_total|floatformat:2 }} zł</td>
+            </tr>
+            {% empty %}
+            <tr>
+                <td colspan="4" class="text-center text-muted">Brak wpłat w wybranym roku.</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+        <tfoot class="font-weight-bold">
+            <tr>
+                <td colspan="2" class="text-right">Suma wpłat:</td>
+                <td class="text-right">{{ total_payments|floatformat:2 }} zł</td>
+                <td></td>
+            </tr>
+        </tfoot>
+    </table>
+</div>
+
+<a href="{% url 'agreement_list' %}" class="btn btn-secondary mt-3">Powrót do listy umów</a>
+
+{% endblock %}

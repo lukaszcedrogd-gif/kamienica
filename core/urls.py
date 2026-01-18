@@ -41,6 +41,8 @@ urlpatterns = [
     path('agreement/<int:pk>/delete/', views.delete_agreement, name='agreement-delete'),
     path('agreement/<int:pk>/terminate/', views.terminate_agreement, name='terminate_agreement'),
     path('agreement/<int:pk>/settlement/', views.settlement, name='settlement'),
+    path('agreement/<int:pk>/annual_report/', views.annual_agreement_report, name='annual_agreement_report'),
+    path('agreement/<int:pk>/annual_report/pdf/', views.annual_report_pdf, name='annual_report_pdf'),
 
     # Meter Reading URLs
     path('meter/<int:meter_id>/add_reading/', views.add_meter_reading, name='add_meter_reading'),

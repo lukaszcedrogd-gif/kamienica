@@ -35,7 +35,10 @@
                 <b>Koszt: {{ detail.cost|floatformat:2 }} zł</b>
             </td>
           {% endfor %}
-          <td class="text-right font-weight-bold">{{ row.total_cost|floatformat:2 }}</td>
+          <td class="text-right font-weight-bold" style="font-size: 0.9em; line-height: 1.2;">
+            Zużycie: {{ row.total_consumption|floatformat:3 }} m³<br>
+            <b>Koszt: {{ row.total_cost|floatformat:2 }} zł</b>
+          </td>
         </tr>
       {% endfor %}
     </tbody>
