@@ -1146,23 +1146,47 @@ def bimonthly_report_view(request, pk):
     return render(request, 'core/bimonthly_report.html', context)
 
 
-def _get_annual_report_context(agreement, selected_year):
+def _get_annual_report_context(agreement, selected_year, _cache=None):
+    if _cache is None:
+        _cache = {}
+    if selected_year in _cache:
+        return _cache[selected_year]
+
+    # Base case for recursion: if the selected year is before the agreement starts, there's no data.
+    if agreement.start_date and selected_year < agreement.start_date.year:
+        return {
+            'final_balance': Decimal('0.00'), 'rent_schedule': [], 'total_rent': Decimal('0.00'),
+            'total_payments': Decimal('0.00'), 'cumulative_payments': [], 'bimonthly_data': [],
+            'total_waste_cost_year': Decimal('0.00'), 'total_water_cost_year': Decimal('0.00'),
+            'total_water_consumption_year': Decimal('0.00'), 'total_costs': Decimal('0.00'),
+            'agreement': agreement, 'title': "", 'selected_year': selected_year, 'available_years': []
+        }
+
     lokal = agreement.lokal
     current_date = date.today()
     current_year = current_date.year
-    available_years = list(range(current_year, current_year - 5, -1))
-    
+    if agreement.start_date:
+        available_years = list(range(current_year, agreement.start_date.year - 1, -1))
+    else:
+        available_years = list(range(current_year, current_year - 5, -1))
+
     year_start = date(selected_year, 1, 1)
     year_end = date(selected_year, 12, 31)
+
+    # --- CARRY-OVER BALANCE ---
+    previous_year_balance = Decimal('0.00')
+    if agreement.start_date and selected_year > agreement.start_date.year:
+        prev_year_context = _get_annual_report_context(agreement, selected_year - 1, _cache)
+        previous_year_balance = prev_year_context.get('final_balance', Decimal('0.00'))
 
     # --- RENT SCHEDULE CALCULATION ---
     rent_schedule = []
     total_rent = Decimal('0.00')
     month_names = [
-        "Styczeń", "Luty", "Marzec", "Kwiecień", "Maj", "Czerwiec", 
+        "Styczeń", "Luty", "Marzec", "Kwiecień", "Maj", "Czerwiec",
         "Lipiec", "Sierpień", "Wrzesień", "Październik", "Listopad", "Grudzień"
     ]
-    
+
     limit_month = 12
     if selected_year == current_year:
         limit_month = current_date.month
@@ -1181,13 +1205,16 @@ def _get_annual_report_context(agreement, selected_year):
             
             if historical_record:
                 monthly_rent = historical_record.rent_amount
-            else:
-                if agreement.start_date <= date_in_month.date():
-                     monthly_rent = agreement.rent_amount
+            elif agreement.start_date <= date_in_month.date():
+                earliest_record = agreement.history.order_by('history_date').first()
+                if earliest_record:
+                    monthly_rent = earliest_record.rent_amount
+                else:
+                    monthly_rent = agreement.rent_amount
         
         rent_schedule.append({'month_name': month_name, 'rent': monthly_rent})
         total_rent += monthly_rent
-        
+
     # --- PAYMENTS ---
     payments = FinancialTransaction.objects.filter(
         lokal=lokal,
@@ -1196,7 +1223,16 @@ def _get_annual_report_context(agreement, selected_year):
     ).order_by('posting_date')
 
     cumulative_payments = []
-    running_total = Decimal('0.00')
+    running_total = previous_year_balance # Start with the balance from the previous year
+
+    if previous_year_balance != Decimal('0.00'):
+        cumulative_payments.append({
+            'date': year_start,
+            'amount': previous_year_balance,
+            'running_total': running_total,
+            'description': f'Bilans z roku {selected_year - 1}'
+        })
+
     for payment in payments:
         running_total += payment.amount
         cumulative_payments.append({
@@ -1299,7 +1335,7 @@ def _get_annual_report_context(agreement, selected_year):
     total_costs = total_rent + total_waste_cost_year + total_water_cost_year
     final_balance = total_payments - total_costs
 
-    return {
+    context = {
         'agreement': agreement, 'title': f"Raport roczny dla lokalu {lokal.unit_number} ({selected_year})",
         'selected_year': selected_year, 'available_years': available_years,
         'rent_schedule': rent_schedule, 'total_rent': total_rent,
@@ -1310,6 +1346,8 @@ def _get_annual_report_context(agreement, selected_year):
         'total_water_consumption_year': total_water_consumption_year,
         'total_costs': total_costs, 'final_balance': final_balance,
     }
+    _cache[selected_year] = context
+    return context
 
 def annual_agreement_report(request, pk):
     agreement = get_object_or_404(Agreement, pk=pk)
@@ -1318,7 +1356,8 @@ def annual_agreement_report(request, pk):
     except (ValueError, TypeError):
         selected_year = date.today().year
     
-    context = _get_annual_report_context(agreement, selected_year)
+    # Initialize a cache for this request to memoize report calculations
+    context = _get_annual_report_context(agreement, selected_year, _cache={})
     return render(request, 'core/annual_agreement_report.html', context)
 
 
@@ -1536,7 +1575,7 @@ def annual_report_pdf(request, pk):
     except (ValueError, TypeError):
         selected_year = date.today().year
 
-    context = _get_annual_report_context(agreement, selected_year)
+    context = _get_annual_report_context(agreement, selected_year, _cache={})
 
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=72, leftMargin=72, topMargin=72, bottomMargin=18)

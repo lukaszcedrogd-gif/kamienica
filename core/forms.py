@@ -51,7 +51,7 @@ class DateInput(forms.DateInput):
 class AgreementForm(forms.ModelForm):
     class Meta:
         model = Agreement
-        fields = '__all__'
+        exclude = ['is_active']
         widgets = {
             'user': forms.Select(attrs={'class': 'form-control'}),
             'lokal': forms.Select(attrs={'class': 'form-control'}),
@@ -64,7 +64,6 @@ class AgreementForm(forms.ModelForm):
             'old_agreement': forms.Select(attrs={'class': 'form-control'}),
             'additional_info': forms.Textarea(attrs={'class': 'form-control', 'rows': 3}),
             'number_of_occupants': forms.NumberInput(attrs={'class': 'form-control'}),
-            'is_active': forms.CheckboxInput(attrs={'class': 'form-check-input'}),
         }
 
 class LokalForm(forms.ModelForm):
