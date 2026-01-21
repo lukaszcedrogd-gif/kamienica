@@ -34,7 +34,7 @@ class AgreementAdmin(admin.ModelAdmin):
         # so that filtering in admin works correctly.
         return Agreement.all_objects.all()
 
-    @admin.action(description='Generuj aneks do wybranej umowy (przedłużenie o rok - 1 dzień)')
+    @admin.action(description='Generuj aneks do wybranej umowy (przedłużenie o rok)')
     def generate_annex(self, request, queryset):
         if queryset.count() != 1:
             self.message_user(request, "Proszę wybrać dokładnie jedną umowę do wygenerowania aneksu.", level=messages.ERROR)
@@ -46,10 +46,21 @@ class AgreementAdmin(admin.ModelAdmin):
             self.message_user(request, f"Umowa dla lokalu {original_agreement.lokal.unit_number} nie ma daty zakończenia. Nie można wygenerować aneksu.", level=messages.ERROR)
             return
 
-        # Tworzenie aneksu
+        # Obliczanie dat dla aneksu na kolejny rok
         new_start_date = original_agreement.end_date + timezone.timedelta(days=1)
-        new_end_date = original_agreement.end_date + relativedelta(years=1) - timezone.timedelta(days=1)
+        new_end_date = new_start_date + relativedelta(years=1, days=-1)
 
+        # Sprawdzenie, czy istnieje już aktywna umowa w nowym okresie
+        if Agreement.objects.filter(
+            lokal=original_agreement.lokal,
+            is_active=True,
+            start_date__lte=new_end_date,
+            end_date__gte=new_start_date
+        ).exists():
+            self.message_user(request, f"Dla lokalu {original_agreement.lokal.unit_number} istnieje już aktywna umowa w okresie, na który próbowano wygenerować aneks ({new_start_date.strftime('%Y-%m-%d')} - {new_end_date.strftime('%Y-%m-%d')}). Aneks nie został utworzony.", level=messages.ERROR)
+            return
+
+        # Tworzenie aneksu
         annex = Agreement.objects.create(
             user=original_agreement.user,
             lokal=original_agreement.lokal,
