@@ -24,10 +24,33 @@ class WaterCostOverrideAdmin(admin.ModelAdmin):
 
 @admin.register(Agreement)
 class AgreementAdmin(admin.ModelAdmin):
-    list_display = ('__str__', 'start_date', 'end_date', 'is_active')
+    list_display = ('__str__', 'start_date', 'end_date', 'initial_balance', 'is_active')
     list_filter = ('is_active', 'type', 'lokal')
     search_fields = ('user__name', 'user__lastname', 'lokal__unit_number')
     actions = ['generate_annex']
+    fieldsets = (
+        ('Podstawowe informacje', {
+            'fields': ('user', 'lokal', 'type', 'is_active')
+        }),
+        ('Daty trwania umowy', {
+            'fields': ('signing_date', 'start_date', 'end_date')
+        }),
+        ('Finanse', {
+            'fields': ('rent_amount', 'deposit_amount')
+        }),
+        ('Saldo początkowe', {
+            'classes': ('collapse',),
+            'fields': ('balance_start_date', 'initial_balance'),
+            'description': 'Uzupełnij te pola, jeśli zaczynasz pracę z aplikacją w trakcie trwania umowy i chcesz wprowadzić istniejące saldo.'
+        }),
+        ('Informacje dodatkowe', {
+            'fields': ('number_of_occupants', 'additional_info')
+        }),
+        ('Powiązanie z aneksem', {
+            'classes': ('collapse',),
+            'fields': ('old_agreement',)
+        }),
+    )
 
     def get_queryset(self, request):
         # Override default manager to show all agreements (active and inactive)

@@ -255,105 +255,8 @@ def delete_agreement(request, pk):
     return render(request, 'core/confirm_delete.html', {'object': obj, 'type': 'umowę', 'cancel_url': 'agreement_list'})
 
 # --- Financial Views ---
-def get_title_from_description(description, contractor=''):
-    search_text = (description + ' ' + (contractor or '')).lower()
-    rules = CategorizationRule.objects.all()
-    
-    matching_titles = []
-    matched_rules_for_log = []
+from .services.transaction_processing import process_csv_file
 
-    for rule in rules:
-        # Keywords are comma-separated phrases. We check each phrase using regex for whole-word matching.
-        phrases = [p.strip().lower() for p in rule.keywords.split(',') if p.strip()]
-        for phrase in phrases:
-            if re.search(r'\b' + re.escape(phrase) + r'\b', search_text):
-                matching_titles.append(rule.title)
-                matched_rules_for_log.append(f"'{rule.keywords}'")
-                break # A rule matches if any of its phrases match. Move to next rule.
-
-    unique_matches = list(set(matching_titles))
-
-    if len(unique_matches) == 1:
-        log = f"Dopasowano regułę: {', '.join(matched_rules_for_log)}."
-        return unique_matches[0], 'PROCESSED', log
-    elif len(unique_matches) > 1:
-        log = f"Konflikt, dopasowano reguły: {', '.join(matched_rules_for_log)}."
-        return None, 'CONFLICT', log
-
-    # Fallback to the old logic if no rule is found
-    description_lower = description.lower()
-    fallback_map = {
-        'opłata za prowadzenie rachunku': 'oplata_bankowa',
-        'opłata mies. karta': 'oplata_bankowa',
-        'opłata za wywóz śmieci': 'wywoz_smieci',
-        'pzu': 'ubezpieczenie',
-        'aqua': 'oplata_za_wode',
-        'czynsz': 'czynsz',
-        'tauron': 'energia_klatka',
-        'podatek': 'podatek',
-        'pit': 'podatek',
-    }
-    for keyword, title in fallback_map.items():
-        if keyword in description_lower:
-            return title, 'PROCESSED', f"Dopasowano regułę wbudowaną dla '{keyword}'."
-        
-    return None, 'UNPROCESSED', "Nie znaleziono pasującej reguły."
-
-def match_lokal_for_transaction(description, contractor, amount, posting_date):
-    log_messages = []
-    
-    # Reguła nadrzędna: Ujemne kwoty (koszty) są przypisywane do "kamienicy"
-    if amount < 0:
-        try:
-            kamienica_lokal = Lokal.objects.get(unit_number__iexact='kamienica')
-            log_message = "Automatycznie przypisano do 'kamienica' (transakcja kosztowa)."
-            return kamienica_lokal, 'PROCESSED', log_message
-        except Lokal.DoesNotExist:
-            log_messages.append("Nie znaleziono lokalu 'kamienica' dla transakcji kosztowej.")
-            # Kontynuujemy, może inna reguła coś znajdzie
-
-    search_text = (description + ' ' + (contractor or '')).lower()
-    found_lokals = []
-    
-    # 1. Sprawdzenie Reguł (Słowa kluczowe / Nr konta)
-    for rule in LokalAssignmentRule.objects.all():
-        if re.search(r'\b' + re.escape(rule.keywords.lower()) + r'\b', search_text):
-            found_lokals.append(rule.lokal)
-            log_messages.append(f"Dopasowano regułę przypisania lokalu: '{rule.keywords}' -> Lokal {rule.lokal.unit_number}.")
-
-    # 2. Analiza tekstowa (Regex) - szukanie "lok/m/nr" + liczba
-    # Poprawiona reguła, aby 'm.' nie było mylone z 'mieszkanie' w adresach
-    matches = re.finditer(r'\b(lok|mieszkanie|nr)\.?\s*(\d+[a-zA-Z]?)|\bm\s*(\d+[a-zA-Z]?)', search_text)
-    for match in matches:
-        # Numer lokalu może być w drugiej lub trzeciej grupie przechwytującej, w zależności od części reguły
-        unit_num = match.group(2) or match.group(3)
-        if unit_num:
-            try:
-                lokal = Lokal.objects.get(unit_number__iexact=unit_num)
-                found_lokals.append(lokal)
-                log_messages.append(f"Dopasowano numer lokalu w tekście: '{match.group(0)}' -> Lokal {lokal.unit_number}.")
-            except Lokal.DoesNotExist:
-                pass
-
-    # 3. Analiza Umów (Osoby)
-    users = User.objects.filter(is_active=True, role__in=['lokator', 'wlasciciel'])
-    for user in users:
-        if user.lastname.lower() in search_text and user.name.lower() in search_text:
-            agreement = Agreement.objects.filter(user=user, is_active=True, start_date__lte=posting_date).filter(Q(end_date__gte=posting_date) | Q(end_date__isnull=True)).first()
-            if agreement:
-                found_lokals.append(agreement.lokal)
-                log_messages.append(f"Dopasowano najemcę: '{user.name} {user.lastname}' -> Lokal {agreement.lokal.unit_number}.")
-
-    unique_lokals = list(set(found_lokals))
-
-    if len(unique_lokals) == 1:
-        final_log = " ".join(log_messages)
-        return unique_lokals[0], 'PROCESSED', final_log
-    elif len(unique_lokals) > 1:
-        final_log = "Konflikt: Znaleziono wiele pasujących lokali. " + " ".join(log_messages)
-        return None, 'CONFLICT', final_log
-    else:
-        return None, 'UNPROCESSED', "Nie znaleziono pasującego lokalu."
 
 def upload_csv(request):
     transactions = FinancialTransaction.objects.all().order_by('-posting_date')
@@ -398,104 +301,22 @@ def upload_csv(request):
         form = CSVUploadForm(request.POST, request.FILES)
         if form.is_valid():
             csv_file = request.FILES['csv_file']
-            try:
-                decoded_file = csv_file.read().decode('windows-1250')
-            except UnicodeDecodeError:
-                csv_file.seek(0)
-                decoded_file = csv_file.read().decode('utf-8', errors='ignore')
+            
+            summary = process_csv_file(csv_file)
 
-            io_string = io.StringIO(decoded_file)
-            
-            header_found = False
-            for row in csv.reader(io.StringIO(decoded_file), delimiter=';'):
-                if row and row[0] == "Data transakcji":
-                    header_found = True
-                    break
-            
-            if not header_found:
-                context['upload_summary'] = {'error': 'Nie znaleziono nagłówka "Data transakcji" w pliku CSV.'}
+            if summary.get('error'):
+                context['upload_summary'] = summary
                 return render(request, 'core/upload_csv.html', context)
-
-            io_string = io.StringIO(decoded_file)
-            reader = csv.reader(io_string, delimiter=';')
-            for row in reader:
-                if row and row[0] == "Data transakcji":
-                    break
-
-            processed_count = 0
-            skipped_rows = []
-            has_manual_work = False
-            row_num = 1
-
-            for row in reader:
-                row_num += 1
-                if not row or (row and row[0].startswith("Dokument ma charakter informacyjny")):
-                    break
-                
-                if len(row) > 8:
-                    try:
-                        date_str = row[0].strip()
-                        parsed_date = datetime.datetime.strptime(date_str, '%Y-%m-%d').date()
-                        
-                        amount_str = row[8].replace(',', '.').strip()
-                        if not amount_str:
-                            skipped_rows.append((row_num, 'Pusta kwota'))
-                            continue
-
-                        amount = Decimal(amount_str)
-                        description = row[3].strip()
-                        contractor = row[2].strip()
-                        transaction_id = row[7].strip()
-                        
-                        if not transaction_id:
-                            skipped_rows.append((row_num, 'Pusty numer transakcji'))
-                            continue
-                        
-                        title, title_status, title_log = get_title_from_description(description, contractor)
-                        suggested_lokal, lokal_status, lokal_log = match_lokal_for_transaction(description, contractor, amount, parsed_date)
-
-                        final_status = 'PROCESSED'
-                        if title_status == 'CONFLICT' or lokal_status == 'CONFLICT':
-                            final_status = 'CONFLICT'
-                        elif title_status == 'UNPROCESSED':
-                            final_status = 'UNPROCESSED'
-
-                        if final_status != 'PROCESSED':
-                            has_manual_work = True
-                        
-                        # Połączenie logów z obu funkcji
-                        full_log = f"Kategoryzacja Tytułu: {title_log} | Przypisanie Lokalu: {lokal_log}"
-
-                        FinancialTransaction.objects.update_or_create(
-                            transaction_id=transaction_id,
-                            defaults={
-                                'posting_date': parsed_date,
-                                'description': description,
-                                'amount': amount,
-                                'contractor': contractor,
-                                'title': title,
-                                'lokal': suggested_lokal,
-                                'status': final_status,
-                                # 'processing_log': full_log # Pole pominięte - brak w bazie danych
-                            }
-                        )
-                        processed_count += 1
-
-                    except (ValueError, InvalidOperation, IndexError) as e:
-                        skipped_rows.append((row_num, str(e)))
-                        continue
-                else:
-                    skipped_rows.append((row_num, 'Nieprawidłowa liczba kolumn'))
             
             request.session['upload_summary'] = {
-                'processed_count': processed_count,
-                'skipped_rows': skipped_rows
+                'processed_count': summary.get('processed_count', 0),
+                'skipped_rows': summary.get('skipped_rows', [])
             }
 
-            if has_manual_work:
+            if summary.get('has_manual_work'):
                 return redirect('categorize_transactions')
             else:
-                messages.success(request, f"Import zakończony. Pomyślnie przetworzono {processed_count} transakcji.")
+                messages.success(request, f"Import zakończony. Pomyślnie przetworzono {summary.get('processed_count', 0)} transakcji.")
                 return redirect('upload_csv')
 
     return render(request, 'core/upload_csv.html', context)
@@ -998,11 +819,11 @@ def bimonthly_report_list_view(request):
     return render(request, 'core/bimonthly_report_list.html', context)
 
 
+from .services.reporting import get_bimonthly_report_context, get_annual_report_context
+
+
 def bimonthly_report_view(request, pk):
     lokal = get_object_or_404(Lokal, pk=pk)
-    agreement = Agreement.objects.filter(lokal=lokal, is_active=True).first()
-
-    # --- Year Selection ---
     try:
         selected_year = int(request.GET.get('year', date.today().year))
     except (ValueError, TypeError):
@@ -1011,343 +832,14 @@ def bimonthly_report_view(request, pk):
     current_year = date.today().year
     available_years = list(range(current_year, current_year - 5, -1))
 
-    # --- Pre-calculate all consumptions for the lokal ---
-    period_data_map = defaultdict(lambda: {
-        'consumption_by_meter': defaultdict(lambda: {'consumption': Decimal('0.00'), 'start_reading': None, 'end_reading': None}),
-        'total_consumption': Decimal('0.00')
+    context = get_bimonthly_report_context(lokal, selected_year)
+    context.update({
+        'title': f"Raport dwumiesięczny dla lokalu {lokal.unit_number} ({selected_year})",
+        'available_years': available_years,
     })
     
-    water_meters = Meter.objects.filter(lokal=lokal, type__in=['hot_water', 'cold_water'], status='aktywny')
-    
-    for meter in water_meters:
-        readings = list(meter.readings.all().order_by('reading_date'))
-        for i in range(1, len(readings)):
-            start_reading, end_reading = readings[i-1], readings[i]
-            consumption = end_reading.value - start_reading.value
-            
-            # Correct period assignment logic
-            end_date = end_reading.reading_date
-            period_start_month = ((end_date.month - 1) // 2) * 2 + 1
-            # Handle edge case where reading is early in the month, belongs to previous period
-            if end_date.day < 15 and end_date.month % 2 != 0:
-                 # e.g., reading on March 5th should likely close Jan-Feb period
-                 effective_date = end_date - relativedelta(months=2)
-                 period_start_month = ((effective_date.month - 1) // 2) * 2 + 1
-                 period_start_date = date(effective_date.year, period_start_month, 1)
-            else:
-                 period_start_date = date(end_date.year, period_start_month, 1)
-
-            
-            meter_display_name = f"{meter.get_type_display()} ({meter.serial_number})"
-            
-            data = period_data_map[period_start_date]
-            data['total_consumption'] += consumption
-            data['consumption_by_meter'][meter_display_name]['consumption'] += consumption
-            data['consumption_by_meter'][meter_display_name]['start_reading'] = start_reading
-            data['consumption_by_meter'][meter_display_name]['end_reading'] = end_reading
-
-    # --- Pre-calculate consumptions for ALL lokals (for unit price calculation) ---
-    all_lokals_consumptions = defaultdict(lambda: defaultdict(Decimal))
-    all_active_lokals = Lokal.objects.filter(is_active=True).exclude(unit_number__iexact='kamienica')
-    all_water_meters = Meter.objects.filter(
-        lokal__in=all_active_lokals,
-        type__in=['hot_water', 'cold_water'],
-        status='aktywny'
-    ).select_related('lokal').prefetch_related('readings')
-
-    for meter in all_water_meters:
-        readings = list(meter.readings.all().order_by('reading_date'))
-        for i in range(1, len(readings)):
-            start_reading, end_reading = readings[i-1], readings[i]
-            consumption = end_reading.value - start_reading.value
-            
-            end_date = end_reading.reading_date
-            period_start_month = ((end_date.month - 1) // 2) * 2 + 1
-            if end_date.day < 15 and end_date.month % 2 != 0:
-                effective_date = end_date - relativedelta(months=2)
-                period_start_month = ((effective_date.month - 1) // 2) * 2 + 1
-                period_key = date(effective_date.year, period_start_month, 1)
-            else:
-                period_key = date(end_date.year, period_start_month, 1)
-
-            all_lokals_consumptions[period_key][meter.lokal_id] += consumption
-
-
-    # --- Assemble final report data for the selected year ---
-    report_data = []
-    all_lokals_total_consumption_for_context = None
-
-    # Iterate only over periods that have data and are in the selected year
-    sorted_periods = sorted([p for p in period_data_map.keys() if p.year == selected_year], reverse=True)
-
-    for period_start in sorted_periods:
-        period_consumptions = period_data_map[period_start]
-        period_end = period_start + relativedelta(months=2, days=-1)
-        
-        period_dict = {
-            'period_start_date': period_start,
-            'period_end_date': period_end,
-            'consumption_by_meter': dict(period_consumptions['consumption_by_meter']),
-            'total_consumption': period_consumptions['total_consumption'],
-            'water_cost_details': {},
-            'waste_cost': Decimal('0.00')
-        }
-        
-        # --- Calculate costs for the period ---
-        # 1. Water Cost
-        bill_amount, source = None, 'Brak danych'
-        
-        water_cost_override = WaterCostOverride.objects.filter(period_start_date=period_start).first()
-        if water_cost_override and water_cost_override.overridden_bill_amount is not None:
-            bill_amount = water_cost_override.overridden_bill_amount
-            source = 'Ręczne ustawienie (admin)'
-
-
-        # Calculate total consumption for ALL lokals for this period
-        total_building_consumption = sum(all_lokals_consumptions[period_start].values())
-        consumption_source = 'Suma liczników'
-
-        unit_price = Decimal('0.00')
-        if bill_amount and total_building_consumption > 0:
-            unit_price = bill_amount / total_building_consumption
-        
-        lokal_water_cost = period_dict['total_consumption'] * unit_price
-
-        period_dict['water_cost_details'] = {
-            'bill_amount': bill_amount, 'source': source,
-            'total_building_consumption': total_building_consumption,
-            'consumption_source': consumption_source, 'unit_price': unit_price,
-            'lokal_water_cost': lokal_water_cost.quantize(Decimal('0.01')),
-            'override_obj': water_cost_override
-        }
-
-        # 2. Waste Cost (if agreement exists)
-        if agreement:
-            waste_rule = FixedCost.objects.filter(name__icontains="śmieci", calculation_method='per_person', effective_date__lte=period_start).order_by('-effective_date').first()
-            if waste_rule:
-                period_dict['waste_cost'] = (waste_rule.amount * agreement.number_of_occupants * 2)
-
-        report_data.append(period_dict)
-        
-        # Set the total consumption for all lokals for the latest period (for context/test)
-        if all_lokals_total_consumption_for_context is None:
-             all_lokals_total_consumption_for_context = total_building_consumption
-
-
-    context = {
-        'lokal': lokal,
-        'agreement': agreement,
-        'title': f"Raport dwumiesięczny dla lokalu {lokal.unit_number} ({selected_year})",
-        'report_data': report_data,
-        'available_years': available_years,
-        'selected_year': selected_year,
-        'all_lokals_total_consumption': all_lokals_total_consumption_for_context
-    }
     return render(request, 'core/bimonthly_report.html', context)
 
-
-def _get_annual_report_context(agreement, selected_year, _cache=None):
-    if _cache is None:
-        _cache = {}
-    if selected_year in _cache:
-        return _cache[selected_year]
-
-    # Base case for recursion: if the selected year is before the agreement starts, there's no data.
-    if agreement.start_date and selected_year < agreement.start_date.year:
-        return {
-            'final_balance': Decimal('0.00'), 'rent_schedule': [], 'total_rent': Decimal('0.00'),
-            'total_payments': Decimal('0.00'), 'cumulative_payments': [], 'bimonthly_data': [],
-            'total_waste_cost_year': Decimal('0.00'), 'total_water_cost_year': Decimal('0.00'),
-            'total_water_consumption_year': Decimal('0.00'), 'total_costs': Decimal('0.00'),
-            'agreement': agreement, 'title': "", 'selected_year': selected_year, 'available_years': []
-        }
-
-    lokal = agreement.lokal
-    current_date = date.today()
-    current_year = current_date.year
-    if agreement.start_date:
-        available_years = list(range(current_year, agreement.start_date.year - 1, -1))
-    else:
-        available_years = list(range(current_year, current_year - 5, -1))
-
-    year_start = date(selected_year, 1, 1)
-    year_end = date(selected_year, 12, 31)
-
-    # --- CARRY-OVER BALANCE ---
-    previous_year_balance = Decimal('0.00')
-    if agreement.start_date and selected_year > agreement.start_date.year:
-        prev_year_context = _get_annual_report_context(agreement, selected_year - 1, _cache)
-        previous_year_balance = prev_year_context.get('final_balance', Decimal('0.00'))
-
-    # --- RENT SCHEDULE CALCULATION ---
-    rent_schedule = []
-    total_rent = Decimal('0.00')
-    month_names = [
-        "Styczeń", "Luty", "Marzec", "Kwiecień", "Maj", "Czerwiec",
-        "Lipiec", "Sierpień", "Wrzesień", "Październik", "Listopad", "Grudzień"
-    ]
-
-    limit_month = 12
-    if selected_year == current_year:
-        limit_month = current_date.month
-
-    for i, month_name in enumerate(month_names[:limit_month], 1):
-        current_month = date(selected_year, i, 1)
-        month_end = current_month + relativedelta(months=1, days=-1)
-        monthly_rent = Decimal('0.00')
-
-        agreement_starts_before_month_end = agreement.start_date <= month_end
-        agreement_ends_after_month_start = agreement.end_date is None or agreement.end_date >= current_month
-
-        if agreement_starts_before_month_end and agreement_ends_after_month_start:
-            date_in_month = datetime.datetime(selected_year, i, 15)
-            historical_record = agreement.history.filter(history_date__lte=date_in_month).order_by('-history_date').first()
-            
-            if historical_record:
-                monthly_rent = historical_record.rent_amount
-            elif agreement.start_date <= date_in_month.date():
-                earliest_record = agreement.history.order_by('history_date').first()
-                if earliest_record:
-                    monthly_rent = earliest_record.rent_amount
-                else:
-                    monthly_rent = agreement.rent_amount
-        
-        rent_schedule.append({'month_name': month_name, 'rent': monthly_rent})
-        total_rent += monthly_rent
-
-    # --- PAYMENTS ---
-    payments = FinancialTransaction.objects.filter(
-        lokal=lokal,
-        amount__gt=0,
-        posting_date__range=(year_start, year_end)
-    ).order_by('posting_date')
-
-    cumulative_payments = []
-    running_total = previous_year_balance # Start with the balance from the previous year
-
-    if previous_year_balance != Decimal('0.00'):
-        cumulative_payments.append({
-            'date': year_start,
-            'amount': previous_year_balance,
-            'running_total': running_total,
-            'description': f'Bilans z roku {selected_year - 1}'
-        })
-
-    for payment in payments:
-        running_total += payment.amount
-        cumulative_payments.append({
-            'date': payment.posting_date,
-            'amount': payment.amount,
-            'running_total': running_total,
-            'description': payment.title
-        })
-    
-    total_payments = running_total
-
-    # --- BIMONTHLY CALCULATIONS (Waste & Water) ---
-    all_lokals_consumptions = defaultdict(lambda: defaultdict(Decimal))
-    all_active_lokals = Lokal.objects.filter(is_active=True).exclude(unit_number__iexact='kamienica')
-    all_water_meters = Meter.objects.filter(
-        lokal__in=all_active_lokals, type__in=['hot_water', 'cold_water'], status='aktywny'
-    ).select_related('lokal').prefetch_related('readings')
-
-    for meter in all_water_meters:
-        readings = list(meter.readings.all().order_by('reading_date'))
-        for i in range(1, len(readings)):
-            start_reading, end_reading = readings[i-1], readings[i]
-            end_date = end_reading.reading_date
-            if end_date.year == selected_year:
-                period_start_month = ((end_date.month - 1) // 2) * 2 + 1
-                if end_date.day < 15 and end_date.month % 2 != 0:
-                    effective_date = end_date - relativedelta(months=2)
-                    period_start_month = ((effective_date.month - 1) // 2) * 2 + 1
-                    period_key = date(effective_date.year, period_start_month, 1)
-                else:
-                    period_key = date(end_date.year, period_start_month, 1)
-                
-                if period_key.year == selected_year:
-                    consumption = end_reading.value - start_reading.value
-                    all_lokals_consumptions[period_key][meter.lokal_id] += consumption
-
-    bimonthly_data = []
-    month_start_num = 1
-    for name in ["styczeń-luty", "marzec-kwiecień", "maj-czerwiec", "lipiec-sierpień", "wrzesień-październik", "listopad-grudzień"]:
-        period_start_date = date(selected_year, month_start_num, 1)
-        
-        if selected_year == current_year and period_start_date > current_date:
-            break
-
-        bimonthly_data.append({
-            'name': f"{name} {selected_year}", 'period_start': period_start_date,
-            'period_end': period_start_date + relativedelta(months=2, days=-1),
-            'waste_cost': Decimal('0.00'), 'water_consumption': Decimal('0.00'),
-            'water_cost': Decimal('0.00'), 'meter_details': []
-        })
-        month_start_num += 2
-
-    lokal_meters = Meter.objects.filter(lokal=lokal, type__in=['hot_water', 'cold_water'], status='aktywny')
-    for meter in lokal_meters:
-        all_readings_for_meter = list(meter.readings.filter(reading_date__lt=year_end + relativedelta(months=2)).order_by('reading_date'))
-        last_reading_before_year = meter.readings.filter(reading_date__lt=year_start).order_by('-reading_date').first()
-        if last_reading_before_year and last_reading_before_year not in all_readings_for_meter:
-            all_readings_for_meter.insert(0, last_reading_before_year)
-        
-        unique_readings = sorted(list({r.id: r for r in all_readings_for_meter}.values()), key=lambda r: r.reading_date)
-
-        for i in range(1, len(unique_readings)):
-            start_r, end_r = unique_readings[i-1], unique_readings[i]
-            end_date = end_r.reading_date
-            if not (year_start <= end_date < year_end + relativedelta(months=2)): continue
-
-            period_start_month = ((end_date.month - 1) // 2) * 2 + 1
-            if end_date.day < 15 and end_date.month % 2 != 0:
-                 effective_date = end_date - relativedelta(months=2)
-                 period_start_month = ((effective_date.month - 1) // 2) * 2 + 1
-                 period_key = date(effective_date.year, period_start_month, 1)
-            else:
-                 period_key = date(end_date.year, period_start_month, 1)
-            
-            if period_key.year != selected_year: continue
-
-            for period in bimonthly_data:
-                if period['period_start'] == period_key:
-                    consumption = end_r.value - start_r.value
-                    period['water_consumption'] += consumption
-                    period['meter_details'].append({'meter': meter, 'start_reading': start_r, 'end_reading': end_r, 'consumption': consumption})
-                    break
-    
-    total_water_cost_year, total_waste_cost_year, total_water_consumption_year = Decimal('0.00'), Decimal('0.00'), Decimal('0.00')
-    for period in bimonthly_data:
-        waste_rule = FixedCost.objects.filter(name__icontains="śmieci", calculation_method='per_person', effective_date__lte=period['period_start']).order_by('-effective_date').first()
-        if waste_rule: period['waste_cost'] = (waste_rule.amount * agreement.number_of_occupants * 2)
-        
-        total_building_consumption = sum(all_lokals_consumptions[period['period_start']].values())
-        water_cost_override = WaterCostOverride.objects.filter(period_start_date=period['period_start']).first()
-        unit_price = Decimal('0.00')
-        if water_cost_override and water_cost_override.overridden_bill_amount and total_building_consumption > 0:
-            unit_price = water_cost_override.overridden_bill_amount / total_building_consumption
-        
-        period['water_cost'] = period['water_consumption'] * unit_price
-        total_waste_cost_year += period['waste_cost']
-        total_water_cost_year += period['water_cost']
-        total_water_consumption_year += period['water_consumption']
-
-    total_costs = total_rent + total_waste_cost_year + total_water_cost_year
-    final_balance = total_payments - total_costs
-
-    context = {
-        'agreement': agreement, 'title': f"Raport roczny dla lokalu {lokal.unit_number} ({selected_year})",
-        'selected_year': selected_year, 'available_years': available_years,
-        'rent_schedule': rent_schedule, 'total_rent': total_rent,
-        'total_payments': total_payments, 
-        'cumulative_payments': cumulative_payments,
-        'bimonthly_data': bimonthly_data,
-        'total_waste_cost_year': total_waste_cost_year, 'total_water_cost_year': total_water_cost_year,
-        'total_water_consumption_year': total_water_consumption_year,
-        'total_costs': total_costs, 'final_balance': final_balance,
-    }
-    _cache[selected_year] = context
-    return context
 
 def annual_agreement_report(request, pk):
     agreement = get_object_or_404(Agreement, pk=pk)
@@ -1357,7 +849,7 @@ def annual_agreement_report(request, pk):
         selected_year = date.today().year
     
     # Initialize a cache for this request to memoize report calculations
-    context = _get_annual_report_context(agreement, selected_year, _cache={})
+    context = get_annual_report_context(agreement, selected_year, _cache={})
     return render(request, 'core/annual_agreement_report.html', context)
 
 

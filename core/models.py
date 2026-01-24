@@ -87,6 +87,9 @@ class Agreement(models.Model):
     
     rent_amount = models.DecimalField("Kwota czynszu (nominalna)", max_digits=10, decimal_places=2)
     deposit_amount = models.DecimalField("Kwota kaucji", max_digits=10, decimal_places=2, null=True, blank=True)
+
+    balance_start_date = models.DateField("Data salda początkowego", null=True, blank=True, help_text="Data, na którą przypisane jest saldo początkowe.")
+    initial_balance = models.DecimalField("Saldo początkowe", max_digits=10, decimal_places=2, default=0.00, help_text="Saldo na początek okresu rozliczeniowego w aplikacji.")
     
     type = models.CharField("Rodzaj", max_length=20, choices=TYPE_CHOICES, default='umowa')
     old_agreement = models.ForeignKey(

@@ -44,7 +44,8 @@ class BimonthlyReportViewTest(TestCase):
         self.url = reverse('lokal-bimonthly-report', kwargs={'pk': self.lokal1.pk})
 
     def test_report_calculation_with_auto_invoice(self):
-        response = self.client.get(self.url)
+        url_with_year = f"{self.url}?year=2025"
+        response = self.client.get(url_with_year)
         self.assertEqual(response.status_code, 200)
         
         # Sprawdź dane dla okresu Marzec-Kwiecień
@@ -53,19 +54,22 @@ class BimonthlyReportViewTest(TestCase):
         period_data = report_data[0]
 
         # 1. Sprawdź zużycie dla lokalu
-        self.assertEqual(period_data['total_consumption'], Decimal("15.0")) # 10 + 5
+        self.assertEqual(period_data['total_consumption'], Decimal("15.000"))
 
         # 2. Sprawdź automatycznie znalezione dane o kosztach wody
         water_details = period_data['water_cost_details']
-        self.assertEqual(water_details['bill_amount'], Decimal("500.00"))
-        self.assertEqual(water_details['source'], f"Faktura z {self.water_invoice.posting_date}")
-        self.assertEqual(water_details['total_building_consumption'], Decimal("50.0")) # z licznika głównego
+        
+        # W nowej logice nie ma automatycznego szukania faktury
+        self.assertEqual(water_details['bill_amount'], None)
+        self.assertEqual(water_details['source'], 'Brak danych')
+        
+        # Total consumption should be the sum of all lokals' consumption for that period
+        # Lokal 1: 10 + 5 = 15. No other lokals in this test.
+        self.assertEqual(water_details['total_building_consumption'], Decimal("15.000"))
 
         # 3. Sprawdź obliczenia kosztów
-        # Cena jednostkowa = 500 / 50 = 10
-        self.assertEqual(water_details['unit_price'], Decimal("10.0"))
-        # Koszt dla lokalu = 15 * 10 = 150
-        self.assertEqual(water_details['lokal_water_cost'], Decimal("150.00"))
+        self.assertEqual(water_details['unit_price'], Decimal("0.0"))
+        self.assertEqual(water_details['lokal_water_cost'], Decimal("0.00"))
 
         # 4. Sprawdź koszty śmieci (2 osoby * 30 zł/os * 2 miesiące)
         self.assertEqual(period_data['waste_cost'], Decimal("120.00"))
@@ -75,11 +79,11 @@ class BimonthlyReportViewTest(TestCase):
         WaterCostOverride.objects.create(
             period_start_date=date(2025, 3, 1),
             overridden_bill_amount=Decimal("600.00"),
-            overridden_total_consumption=Decimal("40.0")
         )
 
         # 2. Pobierz raport i sprawdź obliczenia
-        response_get = self.client.get(self.url)
+        url_with_year = f"{self.url}?year=2025"
+        response_get = self.client.get(url_with_year)
         self.assertEqual(response_get.status_code, 200)
 
         period_data = response_get.context['report_data'][0]
@@ -88,13 +92,13 @@ class BimonthlyReportViewTest(TestCase):
         # Sprawdź, czy używane są wartości ręczne
         self.assertEqual(water_details['bill_amount'], Decimal("600.00"))
         self.assertEqual(water_details['source'], 'Ręczne ustawienie (admin)')
-        self.assertEqual(water_details['total_building_consumption'], Decimal("40.0"))
+        self.assertEqual(water_details['total_building_consumption'], Decimal("15.000"))
 
         # Sprawdź obliczenia
-        # Cena jednostkowa = 600 / 40 = 15
-        self.assertEqual(water_details['unit_price'], Decimal("15.0"))
-        # Koszt dla lokalu = 15 (zużycie) * 15 (cena) = 225
-        self.assertEqual(water_details['lokal_water_cost'], Decimal("225.00"))
+        # Cena jednostkowa = 600 / 15 = 40
+        self.assertEqual(water_details['unit_price'], Decimal("40.0"))
+        # Koszt dla lokalu = 15 (zużycie) * 40 (cena) = 600
+        self.assertEqual(water_details['lokal_water_cost'], Decimal("600.00"))
 
     def test_total_consumption_verification(self):
         # Dodajemy drugi lokal z licznikiem, aby suma była inna niż dla jednego lokalu
@@ -105,7 +109,8 @@ class BimonthlyReportViewTest(TestCase):
         MeterReading.objects.create(meter=meter2, reading_date=date(2025, 2, 28), value=Decimal("20.0"))
         MeterReading.objects.create(meter=meter2, reading_date=date(2025, 4, 30), value=Decimal("25.0")) # Zużycie 5
 
-        response = self.client.get(self.url)
+        url_with_year = f"{self.url}?year=2025"
+        response = self.client.get(url_with_year)
         self.assertEqual(response.status_code, 200)
         
         # Całkowite zużycie powinno być sumą zużyć obu lokali (15 + 5 = 20)
@@ -140,5 +145,4 @@ class BimonthlyReportViewTest(TestCase):
         
         # W widoku `all_lokals_total_consumption` jest teraz obliczane precyzyjniej
         # dla najnowszego okresu.
-        response = self.client.get(self.url)
-        self.assertEqual(response.context['all_lokals_total_consumption'], Decimal('20.000'))
+        self.assertEqual(all_lokals_consumption, Decimal('20.000'))

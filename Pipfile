@@ -9,8 +9,8 @@ mysqlclient = "~=2.2.4"
 django = "*"
 django-simple-history = "*"
 python-dateutil = "*"
-python-decouple = "*"
 reportlab = "*"
+python-decouple = "*"
 
 [dev-packages]
 
