@@ -1,0 +1,17 @@
+{% extends "core/base.html" %}
+
+{% block title %}{{ title }}{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <h1 class="mb-4">{{ title }}</h1>
+    <p>Wybierz lokal, aby zobaczyć jego raporty dwumiesięczne.</p>
+    <div class="list-group">
+        {% for lokal in lokale %}
+            <a href="{% url 'lokal-bimonthly-report' pk=lokal.pk %}" class="list-group-item list-group-item-action">
+                Lokal nr {{ lokal.unit_number }}
+            </a>
+        {% endfor %}
+    </div>
+</div>
+{% endblock %}

@@ -1,29 +1,51 @@
-<!DOCTYPE html>
-<html>
-<head>
-    <title>{{ title }}</title>
-    <style>
-        body { font-family: sans-serif; margin: 2em; }
-        form p { margin-bottom: 1em; }
-        label { display: block; margin-bottom: 0.25em; }
-        input, select, textarea { width: 100%; padding: 0.5em; box-sizing: border-box; }
-        button { padding: 0.75em 1.5em; background-color: #007bff; color: white; border: none; cursor: pointer; }
-        .errorlist { color: red; list-style-type: none; padding: 0; }
-    </style>
-</head>
-<body>
-    <h1>{{ title }}</h1>
-    <p>Lokal: {{ meter.lokal }}</p>
-    <form method="post">
-        {% csrf_token %}
-        {{ form.as_p }}
-        <button type="submit">Zapisz odczyt</button>
-    </form>
-    <br>
-    {# This should ideally point to the lokal_detail page. #}
-    {# We will create that later. For now, it goes to the list. #}
-    {% if meter.lokal %}
-    <a href="{% url 'lokal_list' %}">Powrót do listy lokali</a>
-    {% endif %}
-</body>
-</html>
+{% extends "core/base.html" %}
+
+{% block title %}{{ title|default:"Dodaj odczyt licznika" }}{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <h1 class="mb-4">{{ title|default:"Dodaj odczyt licznika" }}</h1>
+
+    <div class="card shadow-sm">
+        <div class="card-header">
+            Szczegóły licznika
+        </div>
+        <div class="card-body">
+            <p><strong>Lokal:</strong> {{ meter.lokal }}</p>
+            <p><strong>Licznik:</strong> {{ meter }}</p>
+        </div>
+    </div>
+
+    <div class="card shadow-sm mt-4">
+        <div class="card-header">
+            Wprowadź nowy odczyt
+        </div>
+        <div class="card-body">
+            <form method="post">
+                {% csrf_token %}
+                {% for field in form %}
+                    <div class="form-group mb-3">
+                        <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+                        {{ field }}
+                        {% if field.help_text %}
+                            <small class="form-text text-muted">{{ field.help_text }}</small>
+                        {% endif %}
+                        {% for error in field.errors %}
+                            <div class="alert alert-danger mt-1">{{ error }}</div>
+                        {% endfor %}
+                    </div>
+                {% endfor %}
+                <button type="submit" class="btn btn-primary">Zapisz odczyt</button>
+            </form>
+        </div>
+    </div>
+
+    <div class="mt-4">
+        {% if meter.lokal %}
+            <a href="{% url 'lokal-detail' meter.lokal.pk %}" class="btn btn-secondary">&laquo; Powrót do szczegółów lokalu</a>
+        {% else %}
+            <a href="{% url 'lokal_list' %}" class="btn btn-secondary">&laquo; Powrót do listy lokali</a>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

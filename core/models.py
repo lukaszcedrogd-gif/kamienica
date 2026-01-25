@@ -19,6 +19,9 @@ class User(models.Model):
    
     name = models.CharField("Imię", max_length=100)
     lastname = models.CharField("Nazwisko", max_length=100)
+    # UWAGA: unique=True na polach null=True może zachowywać się różnie w zależności od bazy danych.
+    # W PostgreSQL, NULLe nie są traktowane jako równe sobie, więc można mieć wiele NULLi.
+    # Warto rozważyć własną logikę walidacji unikalności dla wartości nie-NULL.
     pesel = models.CharField(
         "PESEL", 
         max_length=11, 
@@ -50,9 +53,8 @@ class User(models.Model):
 # --- 2. Lokale ---
 class Lokal(models.Model):
     unit_number = models.CharField("Numer mieszkania", max_length=10, unique=True, help_text="Np. '3a', '12'")
-    size_sqm = models.DecimalField("Wielkość (m²)", max_digits=5, decimal_places=2)
+    size_sqm = models.DecimalField("Wielkość (m²)", max_digits=11, decimal_places=2)
     description = models.TextField("Opis zawartości", blank=True, help_text="Opis wyposażenia, stanu lokalu.")
-    meter_count_quantity = models.IntegerField("Ilość liczników (ogółem)", null=True, blank=True)
     is_active = models.BooleanField("Aktywny", default=True)
 
     # Managers
@@ -85,6 +87,9 @@ class Agreement(models.Model):
     
     rent_amount = models.DecimalField("Kwota czynszu (nominalna)", max_digits=10, decimal_places=2)
     deposit_amount = models.DecimalField("Kwota kaucji", max_digits=10, decimal_places=2, null=True, blank=True)
+
+    balance_start_date = models.DateField("Data salda początkowego", null=True, blank=True, help_text="Data, na którą przypisane jest saldo początkowe.")
+    initial_balance = models.DecimalField("Saldo początkowe", max_digits=10, decimal_places=2, default=0.00, help_text="Saldo na początek okresu rozliczeniowego w aplikacji.")
     
     type = models.CharField("Rodzaj", max_length=20, choices=TYPE_CHOICES, default='umowa')
     old_agreement = models.ForeignKey(
@@ -131,12 +136,12 @@ class RentSchedule(models.Model):
 
 # --- 5. Liczniki ---
 class Meter(models.Model):
-    TYPE_CHOICES = [
-        ('woda_zimna', 'Woda Zimna'),
-        ('woda_ciepla', 'Woda Ciepła'),
-        ('energia', 'Energia'),
-        ('gaz', 'Gaz'),
-        ('co', 'Centralne Ogrzewanie'),
+    METER_TYPE_CHOICES = [
+        ('cold_water', 'Woda zimna'),
+        ('hot_water', 'Woda ciepła'),
+        ('electricity', 'Energia elektryczna'),
+        ('gas', 'Gaz'),
+        ('heat', 'Energia cieplna'),
     ]
     STATUS_CHOICES = [
         ('aktywny', 'Aktywny'),
@@ -144,7 +149,7 @@ class Meter(models.Model):
     ]
 
     serial_number = models.CharField("Numer seryjny", max_length=50, unique=True)
-    type = models.CharField("Typ licznika", max_length=50, choices=TYPE_CHOICES)
+    type = models.CharField("Typ licznika", max_length=50, choices=METER_TYPE_CHOICES)
     status = models.CharField("Status", max_length=20, choices=STATUS_CHOICES, default='aktywny')
     
     lokal = models.ForeignKey(
@@ -180,44 +185,42 @@ class MeterReading(models.Model):
     def __str__(self):
         return f"Odczyt {self.meter.serial_number} z dnia {self.reading_date} = {self.value}"
 
-# --- 7. Koszty Stałe ---
+# --- 7. Reguły Naliczania Opłat (dawniej Koszty Stałe) ---
 class FixedCost(models.Model):
-    COST_TYPE_CHOICES = [
-        ('wywoz_smieci', 'Wywóz śmieci'),
-        ('ubezpieczenie', 'Ubezpieczenie'),
-        ('podatek', 'Podatek od nieruchomości'),
-        ('energia_wspolna', 'Energia części wspólnych'),
+    CALCULATION_METHOD_CHOICES = [
+        ('per_person', 'Od osoby'),
+        ('fixed_amount', 'Stała kwota (dla całej nieruchomości)'),
+        ('per_unit', 'Za jednostkę (np. m³ wody)'),
     ]
 
-    cost_type = models.CharField("Typ kosztu", max_length=100, choices=COST_TYPE_CHOICES)
-    cost_per_person = models.DecimalField("Koszt / osobę", max_digits=10, decimal_places=2, null=True, blank=True)
-    amount = models.DecimalField("Stała kwota", max_digits=10, decimal_places=2, null=True, blank=True)
+    name = models.CharField("Nazwa reguły", max_length=150)
+    calculation_method = models.CharField("Metoda obliczeń", max_length=50, choices=CALCULATION_METHOD_CHOICES)
+    
+    # Pola dla różnych metod obliczeń
+    amount = models.DecimalField("Wartość", max_digits=10, decimal_places=4, help_text="Kwota od osoby, stała kwota lub cena za jednostkę")
+    
+    # Powiązanie z typem mediów (dla metody 'per_unit')
+    meter_type = models.CharField(
+        "Typ licznika (dla opłat 'za jednostkę')", 
+        max_length=50, 
+        choices=Meter.METER_TYPE_CHOICES, 
+        null=True, 
+        blank=True
+    )
+
     effective_date = models.DateField("Data wejścia w życie", default=timezone.now)
 
     class Meta:
-        verbose_name = "Koszt Stały"
-        verbose_name_plural = "Koszty Stałe"
+        verbose_name = "Reguła Naliczania Opłat"
+        verbose_name_plural = "Reguły Naliczania Opłat"
+        ordering = ['-effective_date']
         
     def __str__(self):
-        return f"{self.get_cost_type_display()} od {self.effective_date}"
-        
+        return f"Reguła: {self.name} od {self.effective_date.strftime('%Y-%m-%d')}"
+
+
 # --- 8. Transakcje Finansowe ---
 class FinancialTransaction(models.Model):
-    TYPE_CHOICES = [
-        ('czynsz', 'Czynsz'),
-        ('media', 'Opłaty za media'),
-        ('kaucja', 'Kaucja'),
-        ('naprawy', 'Naprawy / Remonty'),
-        ('smieci', 'Wywóz śmieci'),
-        ('wspolnota', 'Potrzeby kamienicy'),
-        ('energia_klatka', 'Energia klatka'),
-        ('energia_m8', 'Energia m8'),
-        ('wyplata', 'Wypłaty'),
-        ('oplaty_bankowe', 'Opłaty bankowe'),
-        ('sprzatanie', 'Sprzątanie'),
-        ('inne', 'Inne'),
-    ]
-
     user = models.ForeignKey(
         User, 
         verbose_name="Użytkownik", 
@@ -235,10 +238,41 @@ class FinancialTransaction(models.Model):
         related_name="transactions"
     )
     
+    
     amount = models.DecimalField("Kwota [+/-]", max_digits=10, decimal_places=2, help_text="Wpłata (przychód) to kwota dodatnia, wypłata (koszt) to kwota ujemna.")
     posting_date = models.DateField("Data księgowania", default=timezone.now) 
-    type = models.CharField("Typ transakcji", max_length=50, choices=TYPE_CHOICES)
     description = models.TextField("Opis", blank=True)
+    contractor = models.CharField("Kontrahent", max_length=255, blank=True, null=True)
+    transaction_id = models.CharField("ID Transakcji", max_length=255, unique=True, null=True, blank=True)
+
+    TITLE_CHOICES = [
+        ('czynsz', 'czynsz'),
+        ('oplaty', 'opłaty'),
+        ('oplata_bankowa', 'opłata bankowa'),
+        ('energia_klatka', 'energia klatka'),
+        ('energia_m8', 'energię M8'),
+        ('na_potrzeby_kamienicy', 'na potrzeby kamienicy'),
+        ('naprawy_remonty', 'naprawy/remonty'),
+        ('oplata_za_wode', 'opłata za wodę'),
+        ('wywoz_smieci', 'wywóz śmieci'),
+        ('sprzatanie', 'sprzątanie'),
+        ('ogrodnik', 'ogrodnik'),
+        ('ubezpieczenie', 'ubezpieczenie'),
+        ('internet_telefon', 'internet/telefon'),
+        ('elektryk', 'elektryk'),
+        ('kominiarz', 'kominiarz'),
+        ('piece_co', 'piece co'),
+        ('podatek', 'podatek'),
+        ('oplata_nie_stanowiaca_kosztu', 'opłata nie stanowiąca kosztu'),
+    ]
+    title = models.CharField("Tytułem", max_length=100, choices=TITLE_CHOICES, blank=True, null=True)
+
+    STATUS_CHOICES = [
+        ('PROCESSED', 'Przetworzono'),
+        ('UNPROCESSED', 'Nieprzetworzono'),
+        ('CONFLICT', 'Konflikt'),
+    ]
+    status = models.CharField("Status", max_length=20, choices=STATUS_CHOICES, default='UNPROCESSED')
 
     class Meta:
         verbose_name = "Transakcja Finansowa"
@@ -246,9 +280,37 @@ class FinancialTransaction(models.Model):
         ordering = ['-posting_date']
 
     def __str__(self):
-        return f"{self.get_type_display()} {self.amount} PLN ({self.posting_date.strftime('%Y-%m-%d')})"
+        return f"Transakcja {self.amount} PLN ({self.posting_date.strftime('%Y-%m-%d')})"
+
+    @property
+    def is_split_payment(self):
+        return self.transaction_id and '_split' in self.transaction_id
+
+# --- 9. Reguły Kategoryzacji ---
+class CategorizationRule(models.Model):
+    keywords = models.CharField("Słowa kluczowe (oddzielone przecinkami)", max_length=255)
+    title = models.CharField("Tytuł", max_length=100, choices=FinancialTransaction.TITLE_CHOICES)
+
+    class Meta:
+        verbose_name = "Reguła kategoryzacji"
+        verbose_name_plural = "Reguły kategoryzacji"
+
+    def __str__(self):
+        return f"'{self.keywords}' -> '{self.get_title_display()}'"
         
-# --- 9. Fotografie Lokalu ---
+# --- 10. Reguły Przypisania Lokalu (Nowe) ---
+class LokalAssignmentRule(models.Model):
+    keywords = models.CharField("Słowa kluczowe / Nr konta", max_length=255, help_text="Np. nazwisko, fragment opisu, numer konta bankowego")
+    lokal = models.ForeignKey(Lokal, verbose_name="Przypisany Lokal", on_delete=models.CASCADE)
+
+    class Meta:
+        verbose_name = "Reguła przypisania lokalu"
+        verbose_name_plural = "Reguły przypisania lokalu"
+
+    def __str__(self):
+        return f"'{self.keywords}' -> {self.lokal}"
+
+# --- 11. Fotografie Lokalu ---
 class LocalPhoto(models.Model):
     lokal = models.ForeignKey(Lokal, verbose_name="Lokal", on_delete=models.CASCADE, related_name="photos")
     image = models.ImageField(verbose_name="Zdjęcie", upload_to='lokale_photos/')
@@ -261,3 +323,67 @@ class LocalPhoto(models.Model):
         
     def __str__(self):
         return f"Zdjęcie dla {self.lokal.unit_number} z dnia {self.photo_date}"
+
+# --- 12. Naliczenia Miesięczne ---
+class MonthlyCharge(models.Model):
+    agreement = models.ForeignKey(Agreement, verbose_name="Umowa", on_delete=models.CASCADE, related_name="monthly_charges")
+    month_year = models.DateField("Miesiąc naliczenia", help_text="Pierwszy dzień miesiąca, którego dotyczy naliczenie, np. 2025-01-01")
+
+    # Składniki naliczenia
+    rent = models.DecimalField("Czynsz", max_digits=10, decimal_places=2)
+    fixed_fees = models.DecimalField("Opłaty stałe (np. śmieci)", max_digits=10, decimal_places=2)
+    water_cost = models.DecimalField("Koszt wody", max_digits=10, decimal_places=2, default=0)
+    
+    total_charge = models.DecimalField("Suma naliczenia", max_digits=10, decimal_places=2)
+    
+    # Dodatkowe informacje
+    description = models.TextField("Opis/Notatki do naliczenia", blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Naliczenie Miesięczne"
+        verbose_name_plural = "Naliczenia Miesięczne"
+        unique_together = ('agreement', 'month_year') # Zapewnia jedno naliczenie na umowę na miesiąc
+        ordering = ['-month_year', 'agreement']
+
+    def save(self, *args, **kwargs):
+        # Automatyczne obliczanie sumy
+        self.total_charge = self.rent + self.fixed_fees + self.water_cost
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"Naliczenie dla {self.agreement} za {self.month_year.strftime('%Y-%m')} - {self.total_charge} PLN"
+
+# --- 13. Ręczne Ustawienia Kosztów Wody ---
+class WaterCostOverride(models.Model):
+    period_start_date = models.DateField(
+        "Początek okresu rozliczeniowego", 
+        unique=True, 
+        help_text="Pierwszy dzień pierwszego miesiąca okresu, np. 2025-01-01 dla Styczeń-Luty"
+    )
+    overridden_bill_amount = models.DecimalField(
+        "Ręcznie wprowadzona kwota rachunku za wodę", 
+        max_digits=10, 
+        decimal_places=2, 
+        null=True, 
+        blank=True
+    )
+    overridden_total_consumption = models.DecimalField(
+        "Ręcznie wprowadzone całkowite zużycie wody (m³)", 
+        max_digits=10, 
+        decimal_places=3, 
+        null=True, 
+        blank=True
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Rozliczenie wody"
+        verbose_name_plural = "Rozliczenia wody"
+        ordering = ['-period_start_date']
+
+    def __str__(self):
+        return f"Ustawienia dla okresu od {self.period_start_date.strftime('%Y-%m-%d')}"
+
+    

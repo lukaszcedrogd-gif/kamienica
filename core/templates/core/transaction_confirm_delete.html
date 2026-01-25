@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Usuń transakcję</title>
+    <style>
+        body { font-family: sans-serif; margin: 2em; }
+        .container { max-width: 600px; margin: auto; }
+        .card { border: 1px solid #ccc; border-radius: 5px; padding: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); background-color: #fff; }
+        .btn { padding: 10px 20px; text-decoration: none; border-radius: 5px; border: none; cursor: pointer; display: inline-block; font-size: 14px; margin-right: 10px; }
+        .btn-danger { background-color: #dc3545; color: white; }
+        .btn-warning { background-color: #ffc107; color: #212529; }
+        .btn-secondary { background-color: #6c757d; color: white; }
+        .alert { padding: 15px; margin-bottom: 20px; border: 1px solid transparent; border-radius: 4px; }
+        .alert-info { color: #0c5460; background-color: #d1ecf1; border-color: #bee5eb; }
+        .alert-danger { color: #721c24; background-color: #f8d7da; border-color: #f5c6cb; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h2>Potwierdzenie usunięcia</h2>
+    
+    <div class="card">
+        <p>Czy na pewno chcesz usunąć transakcję:</p>
+        <p><strong>{{ transaction.description }}</strong> ({{ transaction.amount }} PLN)</p>
+
+        {% if parent_transaction %}
+            <div class="alert alert-info">
+                <strong>Wykryto powiązanie!</strong><br>
+                Ta transakcja wygląda na wydzieloną część z transakcji:<br>
+                <em>{{ parent_transaction.description }}</em> (ID: {{ parent_transaction.transaction_id }})
+            </div>
+            
+            <form method="post">
+                {% csrf_token %}
+                <p>Ta operacja <strong>cofnie podział</strong>. Kwota {{ transaction.amount }} PLN zostanie zwrócona do transakcji macierzystej, a ta część zostanie usunięta.</p>
+                <button type="submit" name="action" value="merge" class="btn btn-success" style="background-color: #28a745; border-color: #28a745; color: white;">
+                    Potwierdź cofnięcie podziału
+                </button>
+                <a href="{% url 'transaction-edit' transaction.pk %}" class="btn btn-secondary">Anuluj</a>
+            </form>
+        {% elif child_transactions %}
+            <div class="alert alert-warning" style="background-color: #fff3cd; color: #856404; border-color: #ffeeba;">
+                <strong>To jest transakcja macierzysta!</strong><br>
+                Posiada ona {{ child_transactions.count }} wydzielonych części (podziałów).<br>
+                Nie możesz jej po prostu usunąć, ponieważ spowoduje to utratę spójności danych.
+            </div>
+            
+            <form method="post">
+                {% csrf_token %}
+                <p>Wybierz akcję:</p>
+                <button type="submit" name="action" value="merge_children" class="btn btn-success" style="background-color: #28a745; border-color: #28a745; color: white; display: block; width: 100%; margin-bottom: 10px;">
+                    Cofnij podziały (Scal wszystko do tej transakcji)
+                </button>
+                <button type="submit" name="action" value="delete_all" class="btn btn-danger" style="display: block; width: 100%; margin-bottom: 10px;">
+                    Usuń CAŁOŚĆ (Tę transakcję i wszystkie jej części)
+                </button>
+                <a href="{% url 'transaction-edit' transaction.pk %}" class="btn btn-secondary" style="display: block; width: 100%; text-align: center;">Anuluj</a>
+            </form>
+        {% else %}
+            <form method="post">
+                {% csrf_token %}
+                <button type="submit" name="action" value="delete" class="btn btn-danger">Tak, usuń trwale</button>
+                <a href="{% url 'transaction-edit' transaction.pk %}" class="btn btn-secondary">Anuluj</a>
+            </form>
+        {% endif %}
+    </div>
+</div>
+</body>
+</html>

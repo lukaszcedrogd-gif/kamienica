@@ -1,0 +1,18 @@
+{% extends "core/base.html" %}
+
+{% block title %}Zakończenie Umowy{% endblock %}
+
+{% block content %}
+<h1>Zakończenie umowy nr {{ agreement }}</h1>
+<p>Wybierz datę, z którą umowa ma zostać oficjalnie zakończona. Po tej dacie umowa zostanie oznaczona jako nieaktywna.</p>
+
+<form method="post">
+    {% csrf_token %}
+    <div class="mb-3">
+        <label for="end_date" class="form-label">Data zakończenia umowy</label>
+        <input type="date" class="form-control" id="end_date" name="end_date" required>
+    </div>
+    <button type="submit" class="btn btn-danger">Zakończ umowę i przejdź do rozliczenia</button>
+    <a href="{% url 'agreement_list' %}" class="btn btn-secondary">Anuluj</a>
+</form>
+{% endblock %}

@@ -74,7 +74,6 @@ def create_historical_data(apps, schema_editor):
                 lokal=agreement.lokal,
                 amount=agreement.rent_amount, # Wpłata (kwota dodatnia)
                 posting_date=payment_date,
-                type='czynsz',
                 description=f"Wpłata czynszu za {payment_month.strftime('%B %Y')}"
             )
 

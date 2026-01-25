@@ -1,31 +1,4 @@
-# Byte-code files
-*.pyc
 __pycache__/
-
-# IDE-specific files
-.idea/
-*.swp
-*.swo
-
-# Virtual environment
-virtualenv/
-env/
-venv/
-
-# Database
+*.pyc
 db.sqlite3
-
-# Media and static files
-/media/
-/static/
-
-# Django-specific
-*.log
-local_settings.py
-
-# Environment variables
 .env
-
-# Operating System files
-.DS_Store
-Thumbs.db

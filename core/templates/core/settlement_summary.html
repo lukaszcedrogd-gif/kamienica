@@ -1,0 +1,101 @@
+{% extends "core/base.html" %}
+
+{% block title %}Rozliczenie Końcowe Umowy{% endblock %}
+
+{% block content %}
+<div class="container">
+    <h1 class="mb-4">Rozliczenie końcowe umowy dla lokalu {{ agreement.lokal.unit_number }}</h1>
+    
+    <div class="card mb-4">
+        <div class="card-header">
+            Szczegóły Umowy
+        </div>
+        <div class="card-body">
+            <p><strong>Lokator:</strong> {{ agreement.user }}</p>
+            <p><strong>Okres umowy:</strong> {{ agreement.start_date }} - {{ agreement.end_date }}</p>
+            <p><strong>Okres rozliczenia:</strong> {{ period_start|date:"Y-m-d" }} - {{ period_end|date:"Y-m-d" }}</p>
+        </div>
+    </div>
+
+    <form method="post">
+        {% csrf_token %}
+        <div class="row">
+            <!-- PRZYCHODY -->
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header bg-success text-white">
+                        <h3>Przychody</h3>
+                    </div>
+                    <ul class="list-group list-group-flush">
+                        <li class="list-group-item d-flex justify-content-between align-items-center">
+                            Suma wpłat lokatora w okresie rozliczenia
+                            <span class="badge bg-primary rounded-pill">{{ total_payments|default:"0.00" }} zł</span>
+                        </li>
+                        <li class="list-group-item d-flex justify-content-between align-items-center">
+                            Kaucja
+                            <span class="badge bg-primary rounded-pill">{{ agreement.deposit_amount|default:"0.00" }} zł</span>
+                        </li>
+                        <li class="list-group-item d-flex justify-content-between align-items-center fw-bold">
+                            RAZEM PRZYCHODY
+                            <span class="badge bg-success rounded-pill">{{ total_income|default:"0.00" }} zł</span>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+
+            <!-- KOSZTY -->
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header bg-danger text-white">
+                        <h3>Koszty</h3>
+                    </div>
+                    <ul class="list-group list-group-flush">
+                        <li class="list-group-item d-flex justify-content-between align-items-center">
+                            Należny czynsz w okresie rozliczenia
+                            <span class="badge bg-primary rounded-pill">{{ total_rent|default:"0.00" }} zł</span>
+                        </li>
+                        <li class="list-group-item d-flex justify-content-between align-items-center">
+                            Należne opłaty stałe (np. śmieci)
+                            <span class="badge bg-primary rounded-pill">{{ total_fixed_costs|default:"0.00" }} zł</span>
+                        </li>
+                        <li class="list-group-item d-flex justify-content-between align-items-center">
+                            <label for="additional_costs">Koszty dodatkowe (np. zniszczenia)</label>
+                            <input type="number" step="0.01" class="form-control form-control-sm" style="max-width: 120px;" id="additional_costs" name="additional_costs" value="{{ additional_costs|default:'0.00' }}">
+                        </li>
+                        <li class="list-group-item d-flex justify-content-between align-items-center fw-bold">
+                            RAZEM KOSZTY
+                            <span class="badge bg-danger rounded-pill">{{ total_costs|default:"0.00" }} zł</span>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <div class="d-grid gap-2 mt-4">
+            <button type="submit" class="btn btn-primary btn-lg">Przelicz saldo</button>
+        </div>
+    </form>
+
+    <div class="mt-5 text-center">
+        <h2>Saldo końcowe</h2>
+        {% if final_balance > 0 %}
+            <div class="alert alert-success fs-3">
+                <strong>Nadpłata:</strong> {{ final_balance|floatformat:2 }} zł (do zwrotu dla lokatora)
+            </div>
+        {% elif final_balance < 0 %}
+            <div class="alert alert-danger fs-3">
+                <strong>Niedopłata:</strong> {{ final_balance|floatformat:2|cut:"-" }} zł (do zapłaty przez lokatora)
+            </div>
+        {% else %}
+             <div class="alert alert-info fs-3">
+                <strong>Saldo zerowe</strong>
+            </div>
+        {% endif %}
+    </div>
+
+    <div class="mt-4">
+        <a href="{% url 'agreement_list' %}" class="btn btn-secondary">Powrót do listy umów</a>
+    </div>
+
+</div>
+{% endblock %}

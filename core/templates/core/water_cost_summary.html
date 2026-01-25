@@ -1,0 +1,81 @@
+{% extends "core/base.html" %}
+{% load humanize %}
+
+{% block title %}{{ title }}{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <h1 class="mb-4">{{ title }}</h1>
+    <p class="text-muted">Ten panel pozwala na ręczne wprowadzenie globalnych danych dotyczących kosztów wody, które zostaną użyte w raportach dla lokali. Wartości wprowadzone tutaj mają priorytet nad wartościami obliczonymi automatycznie.</p>
+
+    <form method="post">
+        {% csrf_token %}
+        <input type="hidden" name="num_periods" value="{{ report_data|length }}">
+
+        <div class="table-responsive">
+            <table class="table table-bordered table-striped">
+                <thead class="table-light">
+                    <tr>
+                        <th rowspan="2" class="align-middle">Okres rozliczeniowy</th>
+                        <th colspan="2" class="text-center">Całkowite zużycie wody [m³]</th>
+                        <th colspan="3" class="text-center">Kwota rachunku za wodę [zł]</th>
+                    </tr>
+                    <tr>
+                        <th class="text-center">Obliczone</th>
+                        <th class="text-center bg-light-warning">Ręcznie wprowadzone</th>
+                        <th class="text-center">Z faktury</th>
+                        <th class="text-center">Suma kosztów lokali</th>
+                        <th class="text-center bg-light-warning">Ręcznie wprowadzone</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in report_data %}
+                    <tr>
+                        <td>
+                            <input type="hidden" name="period_start_date_{{ forloop.counter0 }}" value="{{ item.period_start_date|date:'Y-m-d' }}">
+                            <strong>{{ item.period_start_date|date:"F" }} - {{ item.period_end_date|date:"F Y" }}</strong>
+                        </td>
+                        <td class="text-center align-middle">
+                            <span class="badge bg-secondary">{{ item.calculated_consumption|floatformat:3|default:"-" }}</span>
+                        </td>
+                        <td>
+                            <input type="text" name="total_consumption_{{ forloop.counter0 }}" 
+                                   class="form-control form-control-sm text-end {% if item.override_obj.overridden_total_consumption is not None %}border-success border-2{% endif %}"
+                                   value="{{ item.override_obj.overridden_total_consumption|floatformat:3|default_if_none:'' }}"
+                                   placeholder="np. 123.456">
+                        </td>
+                        <td class="text-center align-middle">
+                            {% if item.calculated_bill %}
+                                <span class="badge bg-secondary">{{ item.calculated_bill|floatformat:2 }}</span>
+                                <small class="d-block text-muted">z dn. {{ item.invoice_date|date:"Y-m-d" }}</small>
+                            {% else %}
+                                <span class="badge bg-secondary">-</span>
+                            {% endif %}
+                        </td>
+                        <td class="text-center align-middle">
+                            <span class="badge bg-info">{{ item.total_water_payments|floatformat:2 }}</span>
+                        </td>
+                        <td>
+                            <input type="text" name="bill_amount_{{ forloop.counter0 }}"
+                                   class="form-control form-control-sm text-end {% if item.override_obj.overridden_bill_amount is not None %}border-success border-2{% endif %}"
+                                   value="{{ item.override_obj.overridden_bill_amount|floatformat:2|default_if_none:'' }}"
+                                   placeholder="np. 1234.56">
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        <div class="d-grid gap-2 col-6 mx-auto mt-4">
+            <button type="submit" class="btn btn-primary btn-lg">Zapisz zmiany</button>
+        </div>
+    </form>
+</div>
+
+<style>
+    .bg-light-warning {
+        background-color: #fff3cd !important;
+    }
+</style>
+{% endblock %}
