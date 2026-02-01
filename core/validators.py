@@ -37,3 +37,27 @@ def validate_pesel(value):
             params={'value': value},
             code='invalid_checksum'
         )
+
+class CustomPasswordValidator:
+    """
+    Validator for custom password policy:
+    - Minimum 3 characters long.
+    - Must contain at least one special character.
+    """
+    def validate(self, password, user=None):
+        if len(password) < 3:
+            raise ValidationError(
+                _("Hasło musi mieć co najmniej 3 znaki."),
+                code='password_too_short',
+            )
+        
+        if password.isalnum():
+            raise ValidationError(
+                _("Hasło musi zawierać co najmniej jeden znak specjalny (np. !, @, #)."),
+                code='password_no_special_char',
+            )
+
+    def get_help_text(self):
+        return _(
+            "Hasło musi mieć co najmniej 3 znaki i zawierać co najmniej jeden znak specjalny."
+        )

@@ -160,6 +160,8 @@
     </table>
 </div>
 
+{% if user.is_superuser %}
 <a href="{% url 'agreement_list' %}" class="btn btn-secondary mt-3">Powrót do listy umów</a>
+{% endif %}
 
 {% endblock %}
