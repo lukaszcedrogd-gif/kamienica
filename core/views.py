@@ -1013,7 +1013,7 @@ def fixed_costs_view(request):
     """
     # Pobranie wszystkich reguł dotyczących kosztów wywozu śmieci
     waste_rules = FixedCost.objects.filter(
-        name__icontains="śmieci",
+        category="waste",
         calculation_method='per_person'
     ).order_by('-effective_date')
 
@@ -1155,7 +1155,7 @@ def settlement(request, pk):
 
     # 2. Obliczenie sumy kosztów stałych (np. za śmieci)
     total_fixed_costs = Decimal('0.00')
-    waste_rule = FixedCost.objects.filter(name__icontains="śmieci", calculation_method='per_person').order_by('-effective_date').first()
+    waste_rule = FixedCost.objects.filter(category="waste", calculation_method='per_person').order_by('-effective_date').first()
     if waste_rule:
         current_month = period_start
         while current_month <= period_end:

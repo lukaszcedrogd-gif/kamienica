@@ -15,6 +15,20 @@ from ..models import (
 )
 
 
+def _get_period_start(end_date):
+    """
+    Zwraca datę początku okresu dwumiesięcznego dla danej daty odczytu.
+    Jeśli odczyt przypada przed 15. dniem nieparzystego miesiąca (np. 5 marca),
+    jest przypisywany do poprzedniego okresu (styczeń-luty), nie bieżącego (marzec-kwiecień).
+    """
+    if end_date.day < 15 and end_date.month % 2 != 0:
+        effective_date = end_date - relativedelta(months=2)
+    else:
+        effective_date = end_date
+    period_start_month = ((effective_date.month - 1) // 2) * 2 + 1
+    return date(effective_date.year, period_start_month, 1)
+
+
 def get_bimonthly_report_context(lokal, selected_year):
     agreement = Agreement.objects.filter(lokal=lokal, is_active=True).first()
 
@@ -42,17 +56,8 @@ def get_bimonthly_report_context(lokal, selected_year):
             start_reading, end_reading = readings[i - 1], readings[i]
             consumption = end_reading.value - start_reading.value
 
-            # Correct period assignment logic
             end_date = end_reading.reading_date
-            period_start_month = ((end_date.month - 1) // 2) * 2 + 1
-            # Handle edge case where reading is early in the month, belongs to previous period
-            if end_date.day < 15 and end_date.month % 2 != 0:
-                # e.g., reading on March 5th should likely close Jan-Feb period
-                effective_date = end_date - relativedelta(months=2)
-                period_start_month = ((effective_date.month - 1) // 2) * 2 + 1
-                period_start_date = date(effective_date.year, period_start_month, 1)
-            else:
-                period_start_date = date(end_date.year, period_start_month, 1)
+            period_start_date = _get_period_start(end_date)
 
             meter_display_name = f"{meter.get_type_display()} ({meter.serial_number})"
 
@@ -86,13 +91,7 @@ def get_bimonthly_report_context(lokal, selected_year):
             consumption = end_reading.value - start_reading.value
 
             end_date = end_reading.reading_date
-            period_start_month = ((end_date.month - 1) // 2) * 2 + 1
-            if end_date.day < 15 and end_date.month % 2 != 0:
-                effective_date = end_date - relativedelta(months=2)
-                period_start_month = ((effective_date.month - 1) // 2) * 2 + 1
-                period_key = date(effective_date.year, period_start_month, 1)
-            else:
-                period_key = date(end_date.year, period_start_month, 1)
+            period_key = _get_period_start(end_date)
 
             all_lokals_consumptions[period_key][meter.lokal_id] += consumption
 
@@ -153,7 +152,7 @@ def get_bimonthly_report_context(lokal, selected_year):
         if agreement:
             waste_rule = (
                 FixedCost.objects.filter(
-                    name__icontains="śmieci",
+                    category="waste",
                     calculation_method="per_person",
                     effective_date__lte=period_start,
                 )
@@ -324,13 +323,7 @@ def get_annual_report_context(agreement, selected_year, _cache=None):
             start_reading, end_reading = readings[i - 1], readings[i]
             end_date = end_reading.reading_date
             if end_date.year == selected_year:
-                period_start_month = ((end_date.month - 1) // 2) * 2 + 1
-                if end_date.day < 15 and end_date.month % 2 != 0:
-                    effective_date = end_date - relativedelta(months=2)
-                    period_start_month = ((effective_date.month - 1) // 2) * 2 + 1
-                    period_key = date(effective_date.year, period_start_month, 1)
-                else:
-                    period_key = date(end_date.year, period_start_month, 1)
+                period_key = _get_period_start(end_date)
 
                 if period_key.year == selected_year:
                     consumption = end_reading.value - start_reading.value
@@ -397,13 +390,7 @@ def get_annual_report_context(agreement, selected_year, _cache=None):
             ):
                 continue
 
-            period_start_month = ((end_date.month - 1) // 2) * 2 + 1
-            if end_date.day < 15 and end_date.month % 2 != 0:
-                effective_date = end_date - relativedelta(months=2)
-                period_start_month = ((effective_date.month - 1) // 2) * 2 + 1
-                period_key = date(effective_date.year, period_start_month, 1)
-            else:
-                period_key = date(end_date.year, period_start_month, 1)
+            period_key = _get_period_start(end_date)
 
             if period_key.year != selected_year:
                 continue
@@ -430,7 +417,7 @@ def get_annual_report_context(agreement, selected_year, _cache=None):
     for period in bimonthly_data:
         waste_rule = (
             FixedCost.objects.filter(
-                name__icontains="śmieci",
+                category="waste",
                 calculation_method="per_person",
                 effective_date__lte=period["period_start"],
             )

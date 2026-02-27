@@ -5,6 +5,7 @@ import io
 import datetime
 import re
 from decimal import Decimal, InvalidOperation
+from django.db import transaction
 from django.db.models import Q
 from ..models import (
     FinancialTransaction,
@@ -169,76 +170,77 @@ def process_csv_file(file):
     has_manual_work = False
     row_num = 1
 
-    for row in reader:
-        row_num += 1
-        if not row or (row and row[0].startswith("Dokument ma charakter informacyjny")):
-            break
+    with transaction.atomic():
+        for row in reader:
+            row_num += 1
+            if not row or (row and row[0].startswith("Dokument ma charakter informacyjny")):
+                break
 
-        if len(row) > 8:
-            try:
-                date_str = row[0].strip()
-                parsed_date = datetime.datetime.strptime(date_str, "%Y-%m-%d").date()
+            if len(row) > 8:
+                try:
+                    date_str = row[0].strip()
+                    parsed_date = datetime.datetime.strptime(date_str, "%Y-%m-%d").date()
 
-                amount_str = row[8].replace(",", ".").strip()
-                if not amount_str:
-                    skipped_rows.append((row_num, "Pusta kwota"))
+                    amount_str = row[8].replace(",", ".").strip()
+                    if not amount_str:
+                        skipped_rows.append((row_num, "Pusta kwota"))
+                        continue
+
+                    amount = Decimal(amount_str)
+                    description = row[3].strip()
+                    contractor = row[2].strip()
+                    transaction_id = row[7].strip()
+
+                    if not transaction_id:
+                        skipped_rows.append((row_num, "Pusty numer transakcji"))
+                        continue
+
+                    title, title_status, title_log = get_title_from_description(
+                        description, contractor
+                    )
+                    (
+                        suggested_lokal,
+                        lokal_status,
+                        lokal_log,
+                    ) = match_lokal_for_transaction(
+                        description, contractor, amount, parsed_date
+                    )
+
+                    final_status = "PROCESSED"
+                    if title_status == "CONFLICT" or lokal_status == "CONFLICT":
+                        final_status = "CONFLICT"
+                    elif title_status == "UNPROCESSED":
+                        final_status = "UNPROCESSED"
+
+                    if final_status != "PROCESSED":
+                        has_manual_work = True
+
+                    # Połączenie logów z obu funkcji
+                    full_log = (
+                        f"Kategoryzacja Tytułu: {title_log} | Przypisanie Lokalu: {lokal_log}"
+                    )
+
+                    FinancialTransaction.objects.update_or_create(
+                        transaction_id=transaction_id,
+                        defaults={
+                            "posting_date": parsed_date,
+                            "description": description,
+                            "amount": amount,
+                            "contractor": contractor,
+                            "title": title,
+                            "lokal": suggested_lokal,
+                            "status": final_status,
+                            # 'processing_log': full_log # Pole pominięte - brak w bazie danych
+                        },
+                    )
+                    processed_count += 1
+
+                except (ValueError, InvalidOperation, IndexError) as e:
+                    skipped_rows.append((row_num, str(e)))
                     continue
+            else:
+                skipped_rows.append((row_num, "Nieprawidłowa liczba kolumn"))
 
-                amount = Decimal(amount_str)
-                description = row[3].strip()
-                contractor = row[2].strip()
-                transaction_id = row[7].strip()
-
-                if not transaction_id:
-                    skipped_rows.append((row_num, "Pusty numer transakcji"))
-                    continue
-
-                title, title_status, title_log = get_title_from_description(
-                    description, contractor
-                )
-                (
-                    suggested_lokal,
-                    lokal_status,
-                    lokal_log,
-                ) = match_lokal_for_transaction(
-                    description, contractor, amount, parsed_date
-                )
-
-                final_status = "PROCESSED"
-                if title_status == "CONFLICT" or lokal_status == "CONFLICT":
-                    final_status = "CONFLICT"
-                elif title_status == "UNPROCESSED":
-                    final_status = "UNPROCESSED"
-
-                if final_status != "PROCESSED":
-                    has_manual_work = True
-
-                # Połączenie logów z obu funkcji
-                full_log = (
-                    f"Kategoryzacja Tytułu: {title_log} | Przypisanie Lokalu: {lokal_log}"
-                )
-
-                FinancialTransaction.objects.update_or_create(
-                    transaction_id=transaction_id,
-                    defaults={
-                        "posting_date": parsed_date,
-                        "description": description,
-                        "amount": amount,
-                        "contractor": contractor,
-                        "title": title,
-                        "lokal": suggested_lokal,
-                        "status": final_status,
-                        # 'processing_log': full_log # Pole pominięte - brak w bazie danych
-                    },
-                )
-                processed_count += 1
-
-            except (ValueError, InvalidOperation, IndexError) as e:
-                skipped_rows.append((row_num, str(e)))
-                continue
-        else:
-            skipped_rows.append((row_num, "Nieprawidłowa liczba kolumn"))
-    
     return {
         'processed_count': processed_count,
         'skipped_rows': skipped_rows,

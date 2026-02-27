@@ -6,39 +6,34 @@ class CustomAuthBackend(BaseBackend):
     def authenticate(self, request, username=None, password=None):
         """
         Authenticates a user based on email.
-        If the user exists, it first tries to authenticate with the provided password.
-        If that fails, it checks against the default password (unit_number of the lokal).
-        If the default password is correct, it updates the user's password and logs them in.
+
+        Two cases:
+        1. Existing account: only the stored password is accepted. There is no
+           fallback to the default password — this prevents anyone who knows the
+           unit number from resetting a tenant's custom password.
+        2. First login (no AuthUser account yet): the default password (the
+           unit_number of the tenant's lokal) is accepted and the account is
+           created on the fly.
         """
         try:
             auth_user = AuthUser.objects.get(email=username)
-            # First, try to authenticate with the existing password
             if auth_user.check_password(password):
                 return auth_user
-            else:
-                # If the password check fails, try the default password
-                agreement = Agreement.objects.filter(user__email=username, is_active=True).first()
-                if agreement and agreement.lokal and password == agreement.lokal.unit_number:
-                    auth_user.set_password(password)
-                    auth_user.save()
-                    return auth_user
+            # Wrong password for an existing account — do not fall back to the
+            # default password, as that would allow anyone knowing the unit
+            # number to take over the account.
+            return None
         except AuthUser.DoesNotExist:
-            # If the user does not exist, this is the first login.
-            # The username is the email address.
-            email = username
-            try:
-                # Check if there is an active agreement for this email
-                agreement = Agreement.objects.filter(user__email=email, is_active=True).first()
-                if agreement and agreement.lokal and password == agreement.lokal.unit_number:
-                    # Create a new user with the default password
-                    auth_user = AuthUser.objects.create_user(
-                        username=email,  # Use email as the username
-                        email=email,
-                        password=password
-                    )
-                    return auth_user
-            except Agreement.DoesNotExist:
-                return None
+            # First login: accept the default password (unit_number) and create
+            # the account so the tenant can change it afterwards.
+            agreement = Agreement.objects.filter(user__email=username, is_active=True).first()
+            if agreement and agreement.lokal and password == agreement.lokal.unit_number:
+                auth_user = AuthUser.objects.create_user(
+                    username=username,
+                    email=username,
+                    password=password,
+                )
+                return auth_user
         return None
 
     def get_user(self, user_id):

@@ -1,5 +1,6 @@
 from django.test import TestCase, Client
 from django.urls import reverse
+from django.contrib.auth.models import User as AuthUser
 from decimal import Decimal
 from datetime import date, timedelta
 from .models import Lokal, Meter, MeterReading, Agreement, User, FinancialTransaction, WaterCostOverride, FixedCost
@@ -38,9 +39,13 @@ class BimonthlyReportViewTest(TestCase):
             amount=Decimal("-500.00"),
             posting_date=date(2025, 5, 15) # Faktura pasująca do okresu Marzec-Kwiecień
         )
-        FixedCost.objects.create(name="Wywóz śmieci", calculation_method="per_person", amount=Decimal("30"), effective_date=date(2024,1,1))
+        FixedCost.objects.create(name="Wywóz śmieci", category="waste", calculation_method="per_person", amount=Decimal("30"), effective_date=date(2024,1,1))
         
+        self.auth_user = AuthUser.objects.create_superuser(
+            username='testadmin', email='admin@test.com', password='testpass123'
+        )
         self.client = Client()
+        self.client.login(username='testadmin', password='testpass123')
         self.url = reverse('lokal-bimonthly-report', kwargs={'pk': self.lokal1.pk})
 
     def test_report_calculation_with_auto_invoice(self):

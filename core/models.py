@@ -192,8 +192,20 @@ class FixedCost(models.Model):
         ('fixed_amount', 'Stała kwota (dla całej nieruchomości)'),
         ('per_unit', 'Za jednostkę (np. m³ wody)'),
     ]
+    CATEGORY_CHOICES = [
+        ('waste', 'Wywóz śmieci'),
+        ('other', 'Inne'),
+    ]
 
     name = models.CharField("Nazwa reguły", max_length=150)
+    category = models.CharField(
+        "Kategoria",
+        max_length=50,
+        choices=CATEGORY_CHOICES,
+        null=True,
+        blank=True,
+        help_text="Określa rodzaj opłaty. Wymagane do automatycznych obliczeń.",
+    )
     calculation_method = models.CharField("Metoda obliczeń", max_length=50, choices=CALCULATION_METHOD_CHOICES)
     
     # Pola dla różnych metod obliczeń
