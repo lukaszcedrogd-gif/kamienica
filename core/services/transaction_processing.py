@@ -4,6 +4,7 @@ import csv
 import io
 import datetime
 import re
+from collections import defaultdict
 from decimal import Decimal, InvalidOperation
 from django.db import transaction
 from django.db.models import Q
@@ -17,18 +18,24 @@ from ..models import (
 )
 
 
-def get_title_from_description(description, contractor=""):
+def get_title_from_description(description, contractor="", categorization_rules=None):
+    """
+    Kategoryzuje transakcję na podstawie opisu i kontrahenta.
+    Opcjonalny parametr `categorization_rules` pozwala przekazać wstępnie pobrane
+    reguły (list), eliminując zapytanie do bazy przy przetwarzaniu wsadowym.
+    """
     search_text = (description + " " + (contractor or "")).lower()
-    rules = CategorizationRule.objects.all()
+    if categorization_rules is None:
+        categorization_rules = CategorizationRule.objects.all()
 
     matching_titles = []
     matched_rules_for_log = []
 
-    for rule in rules:
+    for rule in categorization_rules:
         # Keywords are comma-separated phrases. We check each phrase using regex for whole-word matching.
         phrases = [p.strip().lower() for p in rule.keywords.split(",") if p.strip()]
         for phrase in phrases:
-            if re.search(r"\b" + re.escape(phrase) + r"\b", search_text):
+            if re.search(r"(?<!\w)" + re.escape(phrase) + r"(?!\w)", search_text):
                 matching_titles.append(rule.title)
                 matched_rules_for_log.append(f"'{rule.keywords}'")
                 break  # A rule matches if any of its phrases match. Move to next rule.
@@ -62,27 +69,47 @@ def get_title_from_description(description, contractor=""):
     return None, "UNPROCESSED", "Nie znaleziono pasującej reguły."
 
 
-def match_lokal_for_transaction(description, contractor, amount, posting_date):
+def match_lokal_for_transaction(
+    description,
+    contractor,
+    amount,
+    posting_date,
+    assignment_rules=None,
+    lokals_by_number=None,
+    active_users=None,
+    agreements_by_user=None,
+):
+    """
+    Przypisuje lokal do transakcji na podstawie opisu, kontrahenta, kwoty i daty.
+    Opcjonalne parametry pozwalają przekazać wstępnie pobrane dane (listy/słowniki),
+    eliminując wielokrotne zapytania do bazy przy przetwarzaniu wsadowym.
+    Bez tych parametrów funkcja działa samodzielnie i pobiera dane sama.
+    """
     log_messages = []
 
     # Reguła nadrzędna: Ujemne kwoty (koszty) są przypisywane do "kamienicy"
     if amount < 0:
-        try:
-            kamienica_lokal = Lokal.objects.get(unit_number__iexact="kamienica")
-            log_message = "Automatycznie przypisano do 'kamienica' (transakcja kosztowa)."
-            return kamienica_lokal, "PROCESSED", log_message
-        except Lokal.DoesNotExist:
-            log_messages.append(
-                "Nie znaleziono lokalu 'kamienica' dla transakcji kosztowej."
-            )
-            # Kontynuujemy, może inna reguła coś znajdzie
+        if lokals_by_number is not None:
+            kamienica_lokal = lokals_by_number.get("kamienica")
+        else:
+            try:
+                kamienica_lokal = Lokal.objects.get(unit_number__iexact="kamienica")
+            except Lokal.DoesNotExist:
+                kamienica_lokal = None
+
+        if kamienica_lokal:
+            return kamienica_lokal, "PROCESSED", "Automatycznie przypisano do 'kamienica' (transakcja kosztowa)."
+        log_messages.append("Nie znaleziono lokalu 'kamienica' dla transakcji kosztowej.")
+        # Kontynuujemy, może inna reguła coś znajdzie
 
     search_text = (description + " " + (contractor or "")).lower()
     found_lokals = []
 
     # 1. Sprawdzenie Reguł (Słowa kluczowe / Nr konta)
-    for rule in LokalAssignmentRule.objects.all():
-        if re.search(r"\b" + re.escape(rule.keywords.lower()) + r"\b", search_text):
+    if assignment_rules is None:
+        assignment_rules = LokalAssignmentRule.objects.select_related("lokal").all()
+    for rule in assignment_rules:
+        if re.search(r"(?<!\w)" + re.escape(rule.keywords.lower()) + r"(?!\w)", search_text):
             found_lokals.append(rule.lokal)
             log_messages.append(
                 f"Dopasowano regułę przypisania lokalu: '{rule.keywords}' -> Lokal {rule.lokal.unit_number}."
@@ -94,31 +121,47 @@ def match_lokal_for_transaction(description, contractor, amount, posting_date):
         r"\b(lok|mieszkanie|nr)\.?\s*(\d+[a-zA-Z]?)|\bm\s*(\d+[a-zA-Z]?)", search_text
     )
     for match in matches:
-        # Numer lokalu może być w drugiej lub trzeciej grupie przechwytującej, w zależności od części reguły
+        # Numer lokalu może być w drugiej lub trzeciej grupie przechwytującej
         unit_num = match.group(2) or match.group(3)
         if unit_num:
-            try:
-                lokal = Lokal.objects.get(unit_number__iexact=unit_num)
+            if lokals_by_number is not None:
+                lokal = lokals_by_number.get(unit_num.lower())
+            else:
+                try:
+                    lokal = Lokal.objects.get(unit_number__iexact=unit_num)
+                except Lokal.DoesNotExist:
+                    lokal = None
+            if lokal:
                 found_lokals.append(lokal)
                 log_messages.append(
                     f"Dopasowano numer lokalu w tekście: '{match.group(0)}' -> Lokal {lokal.unit_number}."
                 )
-            except Lokal.DoesNotExist:
-                pass
 
     # 3. Analiza Umów (Osoby)
-    users = User.objects.filter(is_active=True, role__in=["lokator", "wlasciciel"])
-    for user in users:
+    if active_users is None:
+        active_users = list(User.objects.filter(is_active=True, role__in=["lokator", "wlasciciel"]))
+    for user in active_users:
         if user.lastname.lower() in search_text and user.name.lower() in search_text:
-            agreement = (
-                Agreement.objects.filter(
-                    user=user,
-                    is_active=True,
-                    start_date__lte=posting_date,
+            if agreements_by_user is not None:
+                # Filtrowanie po datach w Pythonie — bez zapytania do bazy
+                agreement = next(
+                    (
+                        ag for ag in agreements_by_user.get(user.id, [])
+                        if ag.start_date <= posting_date
+                        and (ag.end_date is None or ag.end_date >= posting_date)
+                    ),
+                    None,
                 )
-                .filter(Q(end_date__gte=posting_date) | Q(end_date__isnull=True))
-                .first()
-            )
+            else:
+                agreement = (
+                    Agreement.objects.filter(
+                        user=user,
+                        is_active=True,
+                        start_date__lte=posting_date,
+                    )
+                    .filter(Q(end_date__gte=posting_date) | Q(end_date__isnull=True))
+                    .first()
+                )
             if agreement:
                 found_lokals.append(agreement.lokal)
                 log_messages.append(
@@ -146,8 +189,6 @@ def process_csv_file(file):
         file.seek(0)
         decoded_file = file.read().decode("utf-8", errors="ignore")
 
-    io_string = io.StringIO(decoded_file)
-
     header_found = False
     for row in csv.reader(io.StringIO(decoded_file), delimiter=";"):
         if row and row[0] == "Data transakcji":
@@ -164,6 +205,28 @@ def process_csv_file(file):
     for row in reader:
         if row and row[0] == "Data transakcji":
             break
+
+    # --- Jednorazowy prefetch wszystkich danych potrzebnych w pętli ---
+    # Bez tego każda transakcja generowałaby oddzielne zapytania do bazy.
+    categorization_rules = list(CategorizationRule.objects.all())
+    assignment_rules = list(
+        LokalAssignmentRule.objects.select_related("lokal").all()
+    )
+    lokals_by_number = {
+        lokal.unit_number.lower(): lokal
+        for lokal in Lokal.objects.all()
+    }
+    active_users = list(
+        User.objects.filter(is_active=True, role__in=["lokator", "wlasciciel"])
+    )
+    active_agreements = list(
+        Agreement.objects.filter(
+            user__in=active_users, is_active=True
+        ).select_related("user", "lokal")
+    )
+    agreements_by_user = defaultdict(list)
+    for ag in active_agreements:
+        agreements_by_user[ag.user_id].append(ag)
 
     processed_count = 0
     skipped_rows = []
@@ -196,14 +259,19 @@ def process_csv_file(file):
                         continue
 
                     title, title_status, title_log = get_title_from_description(
-                        description, contractor
+                        description, contractor,
+                        categorization_rules=categorization_rules,
                     )
                     (
                         suggested_lokal,
                         lokal_status,
                         lokal_log,
                     ) = match_lokal_for_transaction(
-                        description, contractor, amount, parsed_date
+                        description, contractor, amount, parsed_date,
+                        assignment_rules=assignment_rules,
+                        lokals_by_number=lokals_by_number,
+                        active_users=active_users,
+                        agreements_by_user=agreements_by_user,
                     )
 
                     final_status = "PROCESSED"

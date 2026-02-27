@@ -346,8 +346,6 @@ class MonthlyCharge(models.Model):
     fixed_fees = models.DecimalField("Opłaty stałe (np. śmieci)", max_digits=10, decimal_places=2)
     water_cost = models.DecimalField("Koszt wody", max_digits=10, decimal_places=2, default=0)
     
-    total_charge = models.DecimalField("Suma naliczenia", max_digits=10, decimal_places=2)
-    
     # Dodatkowe informacje
     description = models.TextField("Opis/Notatki do naliczenia", blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -358,10 +356,9 @@ class MonthlyCharge(models.Model):
         unique_together = ('agreement', 'month_year') # Zapewnia jedno naliczenie na umowę na miesiąc
         ordering = ['-month_year', 'agreement']
 
-    def save(self, *args, **kwargs):
-        # Automatyczne obliczanie sumy
-        self.total_charge = self.rent + self.fixed_fees + self.water_cost
-        super().save(*args, **kwargs)
+    @property
+    def total_charge(self):
+        return self.rent + self.fixed_fees + self.water_cost
 
     def __str__(self):
         return f"Naliczenie dla {self.agreement} za {self.month_year.strftime('%Y-%m')} - {self.total_charge} PLN"
