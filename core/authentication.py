@@ -24,15 +24,23 @@ class CustomAuthBackend(BaseBackend):
             # number to take over the account.
             return None
         except AuthUser.DoesNotExist:
-            # First login: accept the default password (unit_number) and create
-            # the account so the tenant can change it afterwards.
+            # First login: accept the default password (tenant's last name) and
+            # create the account.  Comparison is case-insensitive so capitalisation
+            # mistakes don't block the first login.
             agreement = Agreement.objects.filter(user__email=username, is_active=True).first()
-            if agreement and agreement.lokal and password == agreement.lokal.unit_number:
+            if (
+                agreement
+                and agreement.user
+                and agreement.user.lastname
+                and password.strip().lower() == agreement.user.lastname.strip().lower()
+            ):
                 auth_user = AuthUser.objects.create_user(
                     username=username,
                     email=username,
                     password=password,
                 )
+                # Signal to the login view that a forced password change is needed.
+                request._must_change_password = True
                 return auth_user
         return None
 

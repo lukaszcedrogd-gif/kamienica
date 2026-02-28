@@ -184,11 +184,15 @@ def match_lokal_for_transaction(
 
 
 def process_csv_file(file):
+    encoding_warning = False
     try:
         decoded_file = file.read().decode("windows-1250")
     except UnicodeDecodeError:
         file.seek(0)
-        decoded_file = file.read().decode("utf-8", errors="ignore")
+        decoded_file = file.read().decode("utf-8", errors="replace")
+        # Znak \ufffd pojawia się w miejscu każdego bajtu niemożliwego do zdekodowania.
+        # Może oznaczać uszkodzone liczby lub polskie znaki — zgłaszamy ostrzeżenie.
+        encoding_warning = '\ufffd' in decoded_file
 
     header_found = False
     for row in csv.reader(io.StringIO(decoded_file), delimiter=";"):
@@ -198,7 +202,8 @@ def process_csv_file(file):
 
     if not header_found:
         return {
-            "error": 'Nie znaleziono nagłówka "Data transakcji" w pliku CSV.'
+            "error": 'Nie znaleziono nagłówka "Data transakcji" w pliku CSV.',
+            "encoding_warning": encoding_warning,
         }
 
     io_string = io.StringIO(decoded_file)
@@ -313,5 +318,6 @@ def process_csv_file(file):
     return {
         'processed_count': processed_count,
         'skipped_rows': skipped_rows,
-        'has_manual_work': has_manual_work
+        'has_manual_work': has_manual_work,
+        'encoding_warning': encoding_warning,
     }

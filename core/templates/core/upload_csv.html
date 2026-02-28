@@ -36,6 +36,14 @@
                 <p class="text-danger">Błąd: {{ upload_summary.error }}</p>
             {% else %}
                 <p>Przetworzono poprawnie: {{ upload_summary.processed_count }} wierszy.</p>
+                {% if upload_summary.encoding_warning %}
+                    <p class="text-warning">
+                        <strong>Ostrzeżenie kodowania:</strong> Plik CSV zawierał znaki niemożliwe
+                        do zdekodowania w UTF-8. Zostały zastąpione znakiem zastępczym (<code>?</code>).
+                        Sprawdź czy kwoty i nazwy kontrahentów są poprawne. Jeśli dane wyglądają
+                        nieprawidłowo, spróbuj zapisać plik CSV w kodowaniu windows-1250.
+                    </p>
+                {% endif %}
                 {% if upload_summary.skipped_rows %}
                     <p>Pominięto następujące wiersze:</p>
                     <ul>

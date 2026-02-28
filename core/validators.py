@@ -40,17 +40,31 @@ def validate_pesel(value):
 
 class CustomPasswordValidator:
     """
-    Validator for custom password policy:
-    - Minimum 3 characters long.
-    - Must contain at least one special character.
+    Polityka haseł:
+    - Minimum 8 znaków.
+    - Co najmniej jedna wielka litera.
+    - Co najmniej jedna cyfra.
+    - Co najmniej jeden znak specjalny.
     """
+    MIN_LENGTH = 8
+
     def validate(self, password, user=None):
-        if len(password) < 3:
+        if len(password) < self.MIN_LENGTH:
             raise ValidationError(
-                _("Hasło musi mieć co najmniej 3 znaki."),
+                _("Hasło musi mieć co najmniej %(min_length)d znaków."),
                 code='password_too_short',
+                params={'min_length': self.MIN_LENGTH},
             )
-        
+        if not any(c.isupper() for c in password):
+            raise ValidationError(
+                _("Hasło musi zawierać co najmniej jedną wielką literę."),
+                code='password_no_uppercase',
+            )
+        if not any(c.isdigit() for c in password):
+            raise ValidationError(
+                _("Hasło musi zawierać co najmniej jedną cyfrę."),
+                code='password_no_digit',
+            )
         if password.isalnum():
             raise ValidationError(
                 _("Hasło musi zawierać co najmniej jeden znak specjalny (np. !, @, #)."),
@@ -59,5 +73,6 @@ class CustomPasswordValidator:
 
     def get_help_text(self):
         return _(
-            "Hasło musi mieć co najmniej 3 znaki i zawierać co najmniej jeden znak specjalny."
-        )
+            "Hasło musi mieć co najmniej %(min_length)d znaków oraz zawierać: "
+            "wielką literę, cyfrę i znak specjalny."
+        ) % {'min_length': self.MIN_LENGTH}
