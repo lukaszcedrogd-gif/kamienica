@@ -9,6 +9,7 @@ from decimal import Decimal, InvalidOperation
 from django.db import transaction
 from django.db.models import Q
 from ..models import (
+    BUILDING_LOKAL_NUMBER,
     FinancialTransaction,
     CategorizationRule,
     LokalAssignmentRule,
@@ -90,16 +91,16 @@ def match_lokal_for_transaction(
     # Reguła nadrzędna: Ujemne kwoty (koszty) są przypisywane do "kamienicy"
     if amount < 0:
         if lokals_by_number is not None:
-            kamienica_lokal = lokals_by_number.get("kamienica")
+            kamienica_lokal = lokals_by_number.get(BUILDING_LOKAL_NUMBER)
         else:
             try:
-                kamienica_lokal = Lokal.objects.get(unit_number__iexact="kamienica")
+                kamienica_lokal = Lokal.objects.get(unit_number__iexact=BUILDING_LOKAL_NUMBER)
             except Lokal.DoesNotExist:
                 kamienica_lokal = None
 
         if kamienica_lokal:
-            return kamienica_lokal, "PROCESSED", "Automatycznie przypisano do 'kamienica' (transakcja kosztowa)."
-        log_messages.append("Nie znaleziono lokalu 'kamienica' dla transakcji kosztowej.")
+            return kamienica_lokal, "PROCESSED", f"Automatycznie przypisano do '{BUILDING_LOKAL_NUMBER}' (transakcja kosztowa)."
+        log_messages.append(f"Nie znaleziono lokalu '{BUILDING_LOKAL_NUMBER}' dla transakcji kosztowej.")
         # Kontynuujemy, może inna reguła coś znajdzie
 
     search_text = (description + " " + (contractor or "")).lower()

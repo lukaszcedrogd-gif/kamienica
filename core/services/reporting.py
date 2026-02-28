@@ -7,6 +7,7 @@ import datetime
 
 from ..models import (
     Agreement,
+    BUILDING_LOKAL_NUMBER,
     FinancialTransaction,
     FixedCost,
     Lokal,
@@ -76,7 +77,7 @@ def get_bimonthly_report_context(lokal, selected_year):
     # --- Pre-calculate consumptions for ALL lokals (for unit price calculation) ---
     all_lokals_consumptions = defaultdict(lambda: defaultdict(Decimal))
     all_active_lokals = Lokal.objects.filter(is_active=True).exclude(
-        unit_number__iexact="kamienica"
+        unit_number__iexact=BUILDING_LOKAL_NUMBER
     )
     all_water_meters = Meter.objects.filter(
         lokal__in=all_active_lokals,
@@ -309,7 +310,7 @@ def get_annual_report_context(agreement, selected_year, _cache=None):
     # --- BIMONTHLY CALCULATIONS (Waste & Water) ---
     all_lokals_consumptions = defaultdict(lambda: defaultdict(Decimal))
     all_active_lokals = Lokal.objects.filter(is_active=True).exclude(
-        unit_number__iexact="kamienica"
+        unit_number__iexact=BUILDING_LOKAL_NUMBER
     )
     all_water_meters = Meter.objects.filter(
         lokal__in=all_active_lokals,

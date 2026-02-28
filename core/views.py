@@ -18,6 +18,7 @@ from django.shortcuts import render, redirect, get_object_or_404
 from dateutil.relativedelta import relativedelta
 
 from .models import (
+    BUILDING_LOKAL_NUMBER,
     User, Agreement, Lokal, Meter, MeterReading,
     FinancialTransaction, CategorizationRule, LokalAssignmentRule,
     FixedCost, WaterCostOverride,
@@ -1312,7 +1313,7 @@ def water_cost_summary_view(request):
         is_active=True,
         meters__type__in=['hot_water', 'cold_water'],
         meters__status='aktywny'
-    ).exclude(unit_number__iexact='kamienica').distinct().prefetch_related('meters__readings')
+    ).exclude(unit_number__iexact=BUILDING_LOKAL_NUMBER).distinct().prefetch_related('meters__readings')
 
     # Pętla generująca dane dla 12 poprzednich okresów (2 lata)
     for _ in range(12):
@@ -1395,7 +1396,7 @@ def water_cost_table(request):
 
     # --- Filtrowanie lokali w zależności od uprawnień ---
     if request.user.is_superuser:
-        lokals = Lokal.objects.filter(is_active=True).exclude(unit_number__iexact='kamienica').order_by('unit_number')
+        lokals = Lokal.objects.filter(is_active=True).exclude(unit_number__iexact=BUILDING_LOKAL_NUMBER).order_by('unit_number')
     else:
         try:
             agreement = Agreement.objects.get(user__email=request.user.email, is_active=True)

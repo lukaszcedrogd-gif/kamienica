@@ -41,7 +41,6 @@ INSTALLED_APPS = [
     'django.contrib.humanize',
     'Kamienica',
     'core.apps.CoreConfig',
-    'users.apps.UsersConfig',
     'simple_history',
 ]
 
@@ -112,7 +111,7 @@ AUTHENTICATION_BACKENDS = [
 
 LANGUAGE_CODE = 'pl-pl'
 
-TIME_ZONE = 'UTC'
+TIME_ZONE = 'Europe/Warsaw'
 
 USE_I18N = True
 

@@ -3,6 +3,9 @@ from django.utils import timezone
 from simple_history.models import HistoricalRecords
 from .validators import validate_pesel
 
+# Specjalny numer lokalu reprezentujący cały budynek (koszty ogólne).
+BUILDING_LOKAL_NUMBER = "kamienica"
+
 # --- Custom Manager for Soft Delete ---
 class ActiveManager(models.Manager):
     def get_queryset(self):

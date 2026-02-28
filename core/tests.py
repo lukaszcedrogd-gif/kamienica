@@ -3,14 +3,14 @@ from django.urls import reverse
 from django.contrib.auth.models import User as AuthUser
 from decimal import Decimal
 from datetime import date, timedelta
-from .models import Lokal, Meter, MeterReading, Agreement, User, FinancialTransaction, WaterCostOverride, FixedCost
+from .models import BUILDING_LOKAL_NUMBER, Lokal, Meter, MeterReading, Agreement, User, FinancialTransaction, WaterCostOverride, FixedCost
 
 class BimonthlyReportViewTest(TestCase):
     def setUp(self):
         # --- Użytkownicy i Umowy ---
         self.user = User.objects.create(name="Jan", lastname="Kowalski", email="jan@kowalski.com", role="lokator")
         self.lokal1 = Lokal.objects.create(unit_number="1", size_sqm=50)
-        self.kamienica = Lokal.objects.create(unit_number="kamienica", size_sqm=100)
+        self.kamienica = Lokal.objects.create(unit_number=BUILDING_LOKAL_NUMBER, size_sqm=100)
         self.agreement = Agreement.objects.create(
             user=self.user,
             lokal=self.lokal1,
