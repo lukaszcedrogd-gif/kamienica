@@ -52,6 +52,21 @@
                         {% endfor %}
                     </ul>
                 {% endif %}
+                {% if upload_summary.conflict_count or upload_summary.unprocessed_count %}
+                    <hr>
+                    <p>
+                        {% if upload_summary.conflict_count %}
+                            <strong>Konflikty reguł:</strong> {{ upload_summary.conflict_count }}<br>
+                        {% endif %}
+                        {% if upload_summary.unprocessed_count %}
+                            <strong>Nieprzetworzone:</strong> {{ upload_summary.unprocessed_count }}<br>
+                        {% endif %}
+                    </p>
+                    <p>
+                        Niektóre transakcje wymagają ręcznej weryfikacji. 
+                        <a href="{% url 'categorize_transactions' %}">Przejdź do kategoryzacji</a>.
+                    </p>
+                {% endif %}
             {% endif %}
         </div>
     {% endif %}
@@ -89,6 +104,14 @@
                     </select>
                 </div>
                 <div class="col-md-2">
+                    <label for="verified" class="form-label">Zweryfikowano:</label>
+                    <select name="verified" id="verified" class="form-select">
+                        <option value="">-- Wszystkie --</option>
+                        <option value="verified" {% if current_verified == 'verified' %}selected{% endif %}>Tak</option>
+                        <option value="not_verified" {% if current_verified == 'not_verified' %}selected{% endif %}>Nie</option>
+                    </select>
+                </div>
+                <div class="col-md-2">
                     <label for="date_from" class="form-label">Od daty:</label>
                     <input type="date" name="date_from" id="date_from" value="{{ current_date_from|default:'' }}" class="form-control">
                 </div>
@@ -104,33 +127,36 @@
         </div>
     </div>
     
-    <div class="table-responsive">
-        <table class="table table-striped table-hover">
-            <thead class="thead-light">
-                <tr>
-                    <th>ID</th>
-                    <th>Data</th>
-                    <th>Opis</th>
-                    <th>Przychód</th>
-                    <th>Koszty</th>
-                    <th>Dane kontrahenta</th>
-                    <th>Tytułem</th>
-                    <th>Nr mieszkania</th>
-                    <th>Akcje</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for transaction in transactions %}
-                    <tr class="{% if transaction.is_split_payment %}table-warning{% elif transaction.lokal %}table-success{% endif %}">
-                        <td>
-                            {{ transaction.id }}
-                            {% if transaction.is_split_payment %}
-                                <span title="Transakcja powstała w wyniku podziału">✂️</span>
-                            {% endif %}
-                            {% if transaction.status == 'MANUALLY_EDITED' %}
-                                <span title="Transakcja edytowana ręcznie">✋</span>
-                            {% endif %}
-                        </td>
+    <form method="post" action="{% url 'verify_transactions' %}">
+        {% csrf_token %}
+        <div class="table-responsive">
+            <table class="table table-striped table-hover">
+                <thead class="thead-light">
+                    <tr>
+                        <th>ID</th>
+                        <th>Data</th>
+                        <th>Opis</th>
+                        <th>Przychód</th>
+                        <th>Koszty</th>
+                        <th>Dane kontrahenta</th>
+                        <th>Tytułem</th>
+                        <th>Nr mieszkania</th>
+                        <th>Zweryfikowano</th>
+                        <th>Akcje</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for transaction in transactions %}
+                        <tr class="{% if transaction.is_split_payment %}table-warning{% elif transaction.lokal %}table-success{% endif %}">
+                            <td>
+                                {{ transaction.id }}
+                                {% if transaction.is_split_payment %}
+                                    <span title="Transakcja powstała w wyniku podziału">✂️</span>
+                                {% endif %}
+                                {% if transaction.status == 'MANUALLY_EDITED' %}
+                                    <span title="Transakcja edytowana ręcznie">✋</span>
+                                {% endif %}
+                            </td>
                         <td>{{ transaction.posting_date }}</td>
                         <td>{{ transaction.description }}</td>
                         {% if transaction.amount > 0 %}
@@ -144,16 +170,60 @@
                         <td>{{ transaction.get_title_display }}</td>
                         <td>{{ transaction.lokal.unit_number|default:"-" }}</td>
                         <td>
+                            <div class="form-check d-flex align-items-center">
+                                <input class="form-check-input verified-checkbox" type="checkbox" data-transaction-id="{{ transaction.id }}" id="verified_{{ transaction.id }}" {% if transaction.verified %}checked{% endif %}>
+                                <label class="form-check-label ms-2" for="verified_{{ transaction.id }}">Zweryfikowano</label>
+                            </div>
+                        </td>
+                        <td>
                             <a href="{% url 'transaction-edit' transaction.pk %}" class="btn btn-sm btn-warning">Edytuj</a>
                         </td>
                     </tr>
                 {% empty %}
                     <tr>
-                        <td colspan="9" class="text-center">Brak transakcji.</td>
+                        <td colspan="10" class="text-center">Brak transakcji.</td>
                     </tr>
                 {% endfor %}
             </tbody>
         </table>
     </div>
 </div>
+
+<script>
+document.querySelectorAll('.verified-checkbox').forEach(checkbox => {
+    checkbox.addEventListener('change', function() {
+        const transactionId = this.dataset.transactionId;
+        const isChecked = this.checked;
+        const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]') || 
+                          document.querySelector('[name=csrf_token]');
+        const csrfValue = csrfToken ? csrfToken.value : '';
+
+        const formData = new FormData();
+        formData.append('transaction_id', transactionId);
+        formData.append(`verified_${transactionId}`, isChecked ? 'on' : '');
+
+        fetch('{% url "verify_transactions_ajax" %}', {
+            method: 'POST',
+            headers: {
+                'X-CSRFToken': csrfValue,
+            },
+            body: formData,
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                console.log(`Transakcja ${transactionId} zweryfikowana: ${isChecked}`);
+            } else {
+                alert('Błąd przy zapisywaniu. Spróbuj ponownie.');
+                this.checked = !isChecked;
+            }
+        })
+        .catch(error => {
+            console.error('Błąd:', error);
+            alert('Błąd komunikacji z serwerem.');
+            this.checked = !isChecked;
+        });
+    });
+});
+</script>
 {% endblock %}

@@ -1,11 +1,13 @@
 import time
 from decimal import Decimal, InvalidOperation
+from django.http import JsonResponse
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.db.models import Q
 from django.http import HttpResponseForbidden
 from django.shortcuts import render, redirect, get_object_or_404
+
 
 from ..models import Agreement, FinancialTransaction, CategorizationRule, LokalAssignmentRule, Lokal
 from ..forms import CSVUploadForm
@@ -37,6 +39,7 @@ def upload_csv(request):
     date_to = request.GET.get('date_to')
     search_query = request.GET.get('search_query')
     lokal_filter = request.GET.get('lokal_id')
+    verified_filter = request.GET.get('verified')
 
     if category_filter:
         transactions = transactions.filter(title=category_filter)
@@ -46,6 +49,10 @@ def upload_csv(request):
         transactions = transactions.filter(posting_date__gte=date_from)
     if date_to:
         transactions = transactions.filter(posting_date__lte=date_to)
+    if verified_filter == 'verified':
+        transactions = transactions.filter(verified=True)
+    elif verified_filter == 'not_verified':
+        transactions = transactions.filter(verified=False)
     if search_query:
         transactions = transactions.filter(
             Q(description__icontains=search_query) |
@@ -64,6 +71,7 @@ def upload_csv(request):
         'current_date_from': date_from,
         'current_date_to': date_to,
         'current_search_query': search_query,
+        'current_verified': verified_filter,
     }
 
     if request.method == 'POST':
@@ -82,6 +90,8 @@ def upload_csv(request):
                 'processed_count': summary.get('processed_count', 0),
                 'skipped_rows': summary.get('skipped_rows', []),
                 'encoding_warning': summary.get('encoding_warning', False),
+                'conflict_count': summary.get('conflict_count', 0),
+                'unprocessed_count': summary.get('unprocessed_count', 0),
             }
 
             if summary.get('has_manual_work'):
@@ -91,6 +101,59 @@ def upload_csv(request):
                 return redirect('upload_csv')
 
     return render(request, 'core/upload_csv.html', context)
+
+
+@login_required
+def verify_transactions(request):
+    """
+    Zapisuje status ręcznej weryfikacji dla transakcji z listy importu.
+    """
+    if not request.user.is_superuser:
+        return HttpResponseForbidden("Nie masz uprawnień do weryfikacji transakcji.")
+
+    if request.method == 'POST':
+        transaction_ids = request.POST.getlist('transaction_id')
+        for trans_id in transaction_ids:
+            try:
+                transaction = FinancialTransaction.objects.get(id=trans_id)
+            except FinancialTransaction.DoesNotExist:
+                continue
+
+            transaction.verified = request.POST.get(f'verified_{trans_id}') == 'on'
+            if transaction.verified and transaction.status == 'UNPROCESSED':
+                transaction.status = 'MANUALLY_EDITED'
+            transaction.save()
+
+        messages.success(request, "Zaktualizowano status zweryfikowano dla wybranych transakcji.")
+    return redirect('upload_csv')
+
+
+@login_required
+def verify_transactions_ajax(request):
+    """
+    Zapisuje status ręcznej weryfikacji dla pojedynczej transakcji (AJAX).
+    """
+    if not request.user.is_superuser:
+        return JsonResponse({'success': False, 'error': 'Brak uprawnień'}, status=403)
+
+    if request.method == 'POST':
+        transaction_id = request.POST.get('transaction_id')
+        if not transaction_id:
+            return JsonResponse({'success': False, 'error': 'Brak ID transakcji'}, status=400)
+
+        try:
+            transaction = FinancialTransaction.objects.get(id=transaction_id)
+        except FinancialTransaction.DoesNotExist:
+            return JsonResponse({'success': False, 'error': 'Transakcja nie znaleziona'}, status=404)
+
+        transaction.verified = request.POST.get(f'verified_{transaction_id}') == 'on'
+        if transaction.verified and transaction.status == 'UNPROCESSED':
+            transaction.status = 'MANUALLY_EDITED'
+        transaction.save()
+
+        return JsonResponse({'success': True, 'verified': transaction.verified})
+
+    return JsonResponse({'success': False, 'error': 'Metoda niedozwolona'}, status=405)
 
 
 @login_required
@@ -128,6 +191,7 @@ def reprocess_transactions(request):
             transaction.title = title
             transaction.lokal = suggested_lokal
             transaction.status = final_status
+            transaction.processing_log = f"Kategoryzacja Tytułu: {title_log} | Przypisanie Lokalu: {lokal_log}"
             transaction.save()
             updated_count += 1
 

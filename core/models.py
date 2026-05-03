@@ -281,11 +281,14 @@ class FinancialTransaction(models.Model):
         ('oplata_nie_stanowiaca_kosztu', 'opłata nie stanowiąca kosztu'),
     ]
     title = models.CharField("Tytułem", max_length=100, choices=TITLE_CHOICES, blank=True, null=True)
+    processing_log = models.TextField("Log przetwarzania", blank=True, null=True)
+    verified = models.BooleanField("Zweryfikowano ręcznie", default=False)
 
     STATUS_CHOICES = [
-        ('PROCESSED', 'Przetworzono'),
+        ('PROCESSED', 'Przetworzono automatycznie'),
         ('UNPROCESSED', 'Nieprzetworzono'),
-        ('CONFLICT', 'Konflikt'),
+        ('CONFLICT', 'Konflikt reguł'),
+        ('MANUALLY_EDITED', 'Edytowano ręcznie'),
     ]
     status = models.CharField("Status", max_length=20, choices=STATUS_CHOICES, default='UNPROCESSED')
 

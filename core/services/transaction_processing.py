@@ -17,20 +17,41 @@ from ..models import (
     User,
     Agreement,
 )
+from .ai_categorization import categorize_with_ai, test_ollama_connection
+
+AI_MODES = [
+    'rule_only',
+    'conflict_only',
+    'conflict_and_unprocessed',
+]
 
 
-def get_title_from_description(description, contractor="", categorization_rules=None):
+def _should_use_ai(title_status, ai_mode):
+    if ai_mode == 'conflict_only':
+        return title_status == 'CONFLICT'
+    if ai_mode == 'conflict_and_unprocessed':
+        return title_status in ('CONFLICT', 'UNPROCESSED')
+    return False
+
+
+def get_title_from_description(description, contractor="", categorization_rules=None, ai_mode='rule_only'):
     """
     Kategoryzuje transakcję na podstawie opisu i kontrahenta.
     Opcjonalny parametr `categorization_rules` pozwala przekazać wstępnie pobrane
     reguły (list), eliminując zapytanie do bazy przy przetwarzaniu wsadowym.
+    
+    Args:
+        description: Opis transakcji
+        contractor: Kontrahent
+        categorization_rules: Wstępnie pobrane reguły
+        use_ai: Czy używać AI dla konfliktów/unprocessed (domyślnie False)
     """
     search_text = (description + " " + (contractor or "")).lower()
     if categorization_rules is None:
         categorization_rules = CategorizationRule.objects.all()
 
     matching_titles = []
-    matched_rules_for_log = []
+    matched_rule_descriptions = []
 
     for rule in categorization_rules:
         # Keywords are comma-separated phrases. We check each phrase using regex for whole-word matching.
@@ -38,16 +59,21 @@ def get_title_from_description(description, contractor="", categorization_rules=
         for phrase in phrases:
             if re.search(r"(?<!\w)" + re.escape(phrase) + r"(?!\w)", search_text):
                 matching_titles.append(rule.title)
-                matched_rules_for_log.append(f"'{rule.keywords}'")
+                matched_rule_descriptions.append(f"'{rule.keywords}' -> {rule.get_title_display()}")
                 break  # A rule matches if any of its phrases match. Move to next rule.
 
-    unique_matches = list(set(matching_titles))
+    unique_matches = list(dict.fromkeys(matching_titles))
+    unique_rule_descriptions = list(dict.fromkeys(matched_rule_descriptions))
 
-    if len(unique_matches) == 1:
-        log = f"Dopasowano regułę: {', '.join(matched_rules_for_log)}."
+    if len(unique_matches) == 1 and unique_matches[0] is not None:
+        log = f"Dopasowano regułę: {', '.join(unique_rule_descriptions)}."
         return unique_matches[0], "PROCESSED", log
     elif len(unique_matches) > 1:
-        log = f"Konflikt, dopasowano reguły: {', '.join(matched_rules_for_log)}."
+        log = f"Konflikt reguł tytułu: {', '.join(unique_rule_descriptions)}."
+        if _should_use_ai('CONFLICT', ai_mode):
+            ai_title, ai_status, ai_log = categorize_with_ai(description, contractor)
+            if ai_title:
+                return ai_title, "PROCESSED", f"[AI FALLBACK] {ai_log}"
         return None, "CONFLICT", log
 
     # Fallback to the old logic if no rule is found
@@ -66,6 +92,13 @@ def get_title_from_description(description, contractor="", categorization_rules=
     for keyword, title in fallback_map.items():
         if keyword in description_lower:
             return title, "PROCESSED", f"Dopasowano regułę wbudowaną dla '{keyword}'."
+
+    # Jeśli żadna reguła nie pasuje i mamy AI, pytamy AI
+    if _should_use_ai('UNPROCESSED', ai_mode):
+        ai_title, ai_status, ai_log = categorize_with_ai(description, contractor)
+        if ai_title:
+            return ai_title, "PROCESSED", f"[AI] {ai_log}"
+        return None, "UNPROCESSED", ai_log
 
     return None, "UNPROCESSED", "Nie znaleziono pasującej reguły."
 
@@ -183,7 +216,7 @@ def match_lokal_for_transaction(
         return None, "UNPROCESSED", "Nie znaleziono pasującego lokalu."
 
 
-def process_csv_file(file):
+def process_csv_file(file, ai_mode='conflict_and_unprocessed'):
     encoding_warning = False
     try:
         decoded_file = file.read().decode("windows-1250")
@@ -237,6 +270,8 @@ def process_csv_file(file):
     processed_count = 0
     skipped_rows = []
     has_manual_work = False
+    conflict_count = 0
+    unprocessed_count = 0
     row_num = 1
 
     with transaction.atomic():
@@ -267,6 +302,7 @@ def process_csv_file(file):
                     title, title_status, title_log = get_title_from_description(
                         description, contractor,
                         categorization_rules=categorization_rules,
+                        ai_mode=ai_mode,
                     )
                     (
                         suggested_lokal,
@@ -289,6 +325,11 @@ def process_csv_file(file):
                     if final_status != "PROCESSED":
                         has_manual_work = True
 
+                    if final_status == "CONFLICT":
+                        conflict_count += 1
+                    elif final_status == "UNPROCESSED":
+                        unprocessed_count += 1
+
                     # Połączenie logów z obu funkcji
                     full_log = (
                         f"Kategoryzacja Tytułu: {title_log} | Przypisanie Lokalu: {lokal_log}"
@@ -304,7 +345,7 @@ def process_csv_file(file):
                             "title": title,
                             "lokal": suggested_lokal,
                             "status": final_status,
-                            # 'processing_log': full_log # Pole pominięte - brak w bazie danych
+                            "processing_log": full_log,
                         },
                     )
                     processed_count += 1
@@ -319,5 +360,7 @@ def process_csv_file(file):
         'processed_count': processed_count,
         'skipped_rows': skipped_rows,
         'has_manual_work': has_manual_work,
+        'conflict_count': conflict_count,
+        'unprocessed_count': unprocessed_count,
         'encoding_warning': encoding_warning,
     }
