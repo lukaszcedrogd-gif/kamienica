@@ -1,7 +1,9 @@
 {
   "permissions": {
     "allow": [
-      "Bash(python -c \"from core.views import auth, users, lokals, agreements, meters, transactions, rules, reports; print\\(''Import OK''\\)\")"
+      "Bash(python -c \"from core.views import auth, users, lokals, agreements, meters, transactions, rules, reports; print\\(''Import OK''\\)\")",
+      "Bash(python manage.py check)",
+      "Bash(python manage.py shell -c \":*)"
     ]
   }
 }

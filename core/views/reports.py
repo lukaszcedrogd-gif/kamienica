@@ -97,7 +97,7 @@ def bimonthly_report_view(request, pk):
 
     if not request.user.is_superuser:
         try:
-            agreement = Agreement.objects.get(user__email=request.user.email, is_active=True)
+            agreement = Agreement.objects.get(user__email__iexact=request.user.email, is_active=True)
             if lokal.pk != agreement.lokal.pk:
                 return HttpResponseForbidden("Nie masz uprawnień do przeglądania raportów dla tego lokalu.")
         except Agreement.DoesNotExist:
@@ -247,7 +247,7 @@ def water_cost_table(request):
         lokals = Lokal.objects.filter(is_active=True).exclude(unit_number__iexact=BUILDING_LOKAL_NUMBER).order_by('unit_number')
     else:
         try:
-            agreement = Agreement.objects.get(user__email=request.user.email, is_active=True)
+            agreement = Agreement.objects.get(user__email__iexact=request.user.email, is_active=True)
             lokals = Lokal.objects.filter(pk=agreement.lokal.pk) if agreement.lokal else Lokal.objects.none()
         except Agreement.DoesNotExist:
             lokals = Lokal.objects.none()
@@ -327,7 +327,7 @@ def annual_report_pdf(request, pk):
     agreement = get_object_or_404(Agreement, pk=pk)
 
     if not request.user.is_superuser:
-        if agreement.user.email != request.user.email:
+        if agreement.user.email.lower() != request.user.email.lower():
             return HttpResponseForbidden("Nie masz uprawnień do generowania tego raportu.")
 
     try:

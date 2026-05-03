@@ -60,7 +60,7 @@ def home(request):
         return user_list(request)
     else:
         try:
-            agreement = Agreement.objects.get(user__email=request.user.email, is_active=True)
+            agreement = Agreement.objects.get(user__email__iexact=request.user.email, is_active=True)
             return redirect('annual_agreement_report', pk=agreement.pk)
         except Agreement.DoesNotExist:
             messages.error(request, "Nie znaleziono aktywnej umowy dla Twojego konta.")

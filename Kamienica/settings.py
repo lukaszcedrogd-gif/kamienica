@@ -139,3 +139,13 @@ LOGOUT_REDIRECT_URL = '/'
 # --- Email ---
 EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
 DEFAULT_FROM_EMAIL = 'Kamienica <noreply@kamienica.local>'
+
+# --- Session & Cookie Security ---
+SESSION_COOKIE_HTTPONLY = True   # ciasteczko sesji niedostępne przez JavaScript
+SESSION_COOKIE_SAMESITE = 'Strict'  # ochrona przed CSRF cross-site
+CSRF_COOKIE_HTTPONLY = True      # ciasteczko CSRF niedostępne przez JavaScript
+CSRF_COOKIE_SAMESITE = 'Strict'
+
+# Włącz poniższe na produkcji (wymaga HTTPS):
+# SESSION_COOKIE_SECURE = True
+# CSRF_COOKIE_SECURE = True

@@ -1,5 +1,6 @@
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
+from django.http import HttpResponseForbidden
 from django.shortcuts import render, redirect, get_object_or_404
 
 from ..models import Lokal, Meter, MeterReading
@@ -12,6 +13,8 @@ def meter_readings_view(request):
     Wyświetla formularz do wprowadzania odczytów liczników dla wszystkich lokali
     i przetwarza dane z tego formularza.
     """
+    if not request.user.is_superuser:
+        return HttpResponseForbidden("Nie masz uprawnień do wprowadzania odczytów liczników.")
     lokale = Lokal.objects.prefetch_related('meters__readings').all()
 
     if request.method == 'POST':
@@ -35,6 +38,8 @@ def add_meter_reading(request, meter_id):
     """
     Dodaje nowy odczyt dla konkretnego licznika.
     """
+    if not request.user.is_superuser:
+        return HttpResponseForbidden("Nie masz uprawnień do dodawania odczytów liczników.")
     meter = get_object_or_404(Meter, pk=meter_id)
     if request.method == 'POST':
         form = MeterReadingForm(request.POST)

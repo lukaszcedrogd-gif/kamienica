@@ -24,7 +24,7 @@ def agreement_list(request):
     if request.user.is_superuser:
         agreements_query = Agreement.objects.all()
     else:
-        agreements_query = Agreement.objects.filter(user__email=request.user.email, is_active=True)
+        agreements_query = Agreement.objects.filter(user__email__iexact=request.user.email, is_active=True)
 
     agreements = list(agreements_query)
 
@@ -39,6 +39,8 @@ def create_agreement(request):
     """
     Tworzy nową umowę na podstawie danych z formularza.
     """
+    if not request.user.is_superuser:
+        return HttpResponseForbidden("Nie masz uprawnień do tworzenia umów.")
     if request.method == 'POST':
         form = AgreementForm(request.POST)
         if form.is_valid():
@@ -53,6 +55,8 @@ def edit_agreement(request, pk):
     """
     Edytuje istniejącą umowę.
     """
+    if not request.user.is_superuser:
+        return HttpResponseForbidden("Nie masz uprawnień do edycji umów.")
     agreement = get_object_or_404(Agreement, pk=pk)
     if request.method == 'POST':
         form = AgreementForm(request.POST, instance=agreement)
@@ -68,6 +72,8 @@ def delete_agreement(request, pk):
     """
     Dezaktywuje umowę (soft delete).
     """
+    if not request.user.is_superuser:
+        return HttpResponseForbidden("Nie masz uprawnień do usuwania umów.")
     obj = get_object_or_404(Agreement, pk=pk)
     if request.method == 'POST':
         obj.is_active = False
@@ -81,6 +87,8 @@ def terminate_agreement(request, pk):
     Obsługuje proces zakończenia umowy. Ustawia datę końcową i dezaktywuje umowę,
     a następnie przekierowuje do strony rozliczenia końcowego.
     """
+    if not request.user.is_superuser:
+        return HttpResponseForbidden("Nie masz uprawnień do zakończenia umów.")
     agreement = get_object_or_404(Agreement, pk=pk)
     if request.method == 'POST':
         end_date_str = request.POST.get('end_date')
@@ -110,6 +118,10 @@ def settlement(request, pk):
     Generuje i wyświetla rozliczenie końcowe dla zakończonej umowy.
     """
     agreement = get_object_or_404(Agreement.all_objects, pk=pk)
+
+    if not request.user.is_superuser:
+        if agreement.user.email.lower() != request.user.email.lower():
+            return HttpResponseForbidden("Nie masz uprawnień do przeglądania tego rozliczenia.")
 
     if not agreement.end_date:
         agreement.end_date = date.today()
@@ -192,7 +204,7 @@ def annual_agreement_report(request, pk):
     agreement = get_object_or_404(Agreement, pk=pk)
 
     if not request.user.is_superuser:
-        if agreement.user.email != request.user.email:
+        if agreement.user.email.lower() != request.user.email.lower():
             return HttpResponseForbidden("Nie masz uprawnień do przeglądania tego raportu.")
 
     try:

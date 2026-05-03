@@ -1,6 +1,7 @@
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.forms import modelform_factory
+from django.http import HttpResponseForbidden
 from django.shortcuts import render, redirect, get_object_or_404
 
 from ..models import CategorizationRule
@@ -11,6 +12,8 @@ def rule_list(request):
     """
     Wyświetla listę wszystkich reguł kategoryzacji.
     """
+    if not request.user.is_superuser:
+        return HttpResponseForbidden("Nie masz uprawnień do przeglądania reguł kategoryzacji.")
     rules = CategorizationRule.objects.all().order_by('keywords')
     return render(request, 'core/rule_list.html', {'rules': rules})
 
@@ -19,6 +22,8 @@ def edit_rule(request, pk):
     """
     Edytuje istniejącą regułę kategoryzacji.
     """
+    if not request.user.is_superuser:
+        return HttpResponseForbidden("Nie masz uprawnień do edycji reguł kategoryzacji.")
     rule = get_object_or_404(CategorizationRule, pk=pk)
     RuleForm = modelform_factory(CategorizationRule, fields=['keywords', 'title'])
 
@@ -36,6 +41,8 @@ def delete_rule(request, pk):
     """
     Usuwa regułę kategoryzacji. Wymaga potwierdzenia (metoda POST).
     """
+    if not request.user.is_superuser:
+        return HttpResponseForbidden("Nie masz uprawnień do usuwania reguł kategoryzacji.")
     rule = get_object_or_404(CategorizationRule, pk=pk)
     if request.method == 'POST':
         rule.delete()

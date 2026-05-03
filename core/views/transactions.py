@@ -7,7 +7,7 @@ from django.db.models import Q
 from django.http import HttpResponseForbidden
 from django.shortcuts import render, redirect, get_object_or_404
 
-from ..models import FinancialTransaction, CategorizationRule, LokalAssignmentRule, Lokal
+from ..models import Agreement, FinancialTransaction, CategorizationRule, LokalAssignmentRule, Lokal
 from ..forms import CSVUploadForm
 from ..services.transaction_processing import (
     process_csv_file,
@@ -21,8 +21,16 @@ def upload_csv(request):
     """
     Obsługuje import transakcji finansowych z pliku CSV oraz wyświetla listę transakcji.
     """
-    transactions = FinancialTransaction.objects.all().order_by('-posting_date')
-    lokale = Lokal.objects.all().order_by('unit_number')
+    if request.user.is_superuser:
+        transactions = FinancialTransaction.objects.all().order_by('-posting_date')
+        lokale = Lokal.objects.all().order_by('unit_number')
+    else:
+        try:
+            user_agreement = Agreement.objects.get(user__email__iexact=request.user.email, is_active=True)
+            transactions = FinancialTransaction.objects.filter(lokal=user_agreement.lokal, amount__gt=0).order_by('-posting_date')
+        except Agreement.DoesNotExist:
+            transactions = FinancialTransaction.objects.none()
+        lokale = Lokal.objects.none()
 
     category_filter = request.GET.get('category')
     date_from = request.GET.get('date_from')
@@ -59,6 +67,8 @@ def upload_csv(request):
     }
 
     if request.method == 'POST':
+        if not request.user.is_superuser:
+            return HttpResponseForbidden("Nie masz uprawnień do importowania transakcji.")
         form = CSVUploadForm(request.POST, request.FILES)
         if form.is_valid():
             csv_file = request.FILES['csv_file']
@@ -89,6 +99,8 @@ def reprocess_transactions(request):
     Uruchamia ponowne przetwarzanie wszystkich transakcji, które nie były
     edytowane ręcznie.
     """
+    if not request.user.is_superuser:
+        return HttpResponseForbidden("Nie masz uprawnień do ponownego przetwarzania transakcji.")
     transactions = FinancialTransaction.objects.exclude(status='MANUALLY_EDITED')
     updated_count = 0
 
@@ -129,6 +141,8 @@ def categorize_transactions(request):
     Wyświetla stronę do ręcznej kategoryzacji transakcji, które nie zostały
     automatycznie przetworzone lub są w konflikcie.
     """
+    if not request.user.is_superuser:
+        return HttpResponseForbidden("Nie masz uprawnień do kategoryzacji transakcji.")
     transactions_to_process = FinancialTransaction.objects.filter(
         status__in=['UNPROCESSED', 'CONFLICT']
     ).order_by('-posting_date')
@@ -149,6 +163,8 @@ def save_categorization(request):
     """
     Zapisuje zmiany wprowadzone na stronie ręcznej kategoryzacji.
     """
+    if not request.user.is_superuser:
+        return HttpResponseForbidden("Nie masz uprawnień do zapisywania kategoryzacji.")
     if request.method == 'POST':
         transaction_ids = request.POST.getlist('transaction_id')
 
@@ -209,6 +225,8 @@ def edit_transaction(request, pk):
     Umożliwia edycję pojedynczej transakcji, w tym zmianę kategorii, przypisanie
     do lokalu, a także podział transakcji na dwie mniejsze.
     """
+    if not request.user.is_superuser:
+        return HttpResponseForbidden("Nie masz uprawnień do edycji transakcji.")
     transaction = get_object_or_404(FinancialTransaction, pk=pk)
     lokale = Lokal.objects.filter(is_active=True)
 
@@ -298,6 +316,8 @@ def delete_transaction(request, pk):
     Obsługuje usuwanie transakcji z różnymi opcjami w zależności od tego,
     czy transakcja jest częścią podziału.
     """
+    if not request.user.is_superuser:
+        return HttpResponseForbidden("Nie masz uprawnień do usuwania transakcji.")
     transaction = get_object_or_404(FinancialTransaction, pk=pk)
 
     parent_transaction = None

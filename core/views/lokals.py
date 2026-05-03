@@ -52,6 +52,8 @@ def create_lokal(request):
     """
     Tworzy nowy lokal i obsługuje przypisywanie do niego liczników.
     """
+    if not request.user.is_superuser:
+        return HttpResponseForbidden("Nie masz uprawnień do tworzenia lokali.")
     if request.method == 'POST':
         form = LokalForm(request.POST)
         if form.is_valid():
@@ -84,6 +86,8 @@ def edit_lokal(request, pk):
     """
     Edytuje istniejący lokal, w tym zarządza przypisaniem i odpinaniem liczników.
     """
+    if not request.user.is_superuser:
+        return HttpResponseForbidden("Nie masz uprawnień do edycji lokali.")
     lokal = get_object_or_404(Lokal, pk=pk)
 
     if request.method == 'POST':
@@ -125,6 +129,8 @@ def delete_lokal(request, pk):
     """
     Dezaktywuje lokal (soft delete).
     """
+    if not request.user.is_superuser:
+        return HttpResponseForbidden("Nie masz uprawnień do usuwania lokali.")
     obj = get_object_or_404(Lokal, pk=pk)
     if request.method == 'POST':
         obj.is_active = False

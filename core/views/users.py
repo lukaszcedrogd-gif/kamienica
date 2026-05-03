@@ -1,4 +1,3 @@
-from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.http import HttpResponseForbidden
 from django.shortcuts import render, redirect, get_object_or_404
@@ -24,6 +23,8 @@ def create_user(request):
     """
     Tworzy nowego użytkownika na podstawie danych z formularza.
     """
+    if not request.user.is_superuser:
+        return HttpResponseForbidden("Nie masz uprawnień do tworzenia użytkowników.")
     if request.method == 'POST':
         form = UserForm(request.POST)
         if form.is_valid():
@@ -38,6 +39,8 @@ def edit_user(request, pk):
     """
     Edytuje istniejącego użytkownika.
     """
+    if not request.user.is_superuser:
+        return HttpResponseForbidden("Nie masz uprawnień do edycji użytkowników.")
     user = get_object_or_404(User, pk=pk)
     if request.method == 'POST':
         form = UserForm(request.POST, instance=user)
@@ -53,6 +56,8 @@ def delete_user(request, pk):
     """
     Dezaktywuje użytkownika (soft delete).
     """
+    if not request.user.is_superuser:
+        return HttpResponseForbidden("Nie masz uprawnień do usuwania użytkowników.")
     obj = get_object_or_404(User, pk=pk)
     if request.method == 'POST':
         obj.is_active = False
