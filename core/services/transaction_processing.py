@@ -44,7 +44,7 @@ def get_title_from_description(description, contractor="", categorization_rules=
         description: Opis transakcji
         contractor: Kontrahent
         categorization_rules: Wstępnie pobrane reguły
-        use_ai: Czy używać AI dla konfliktów/unprocessed (domyślnie False)
+        ai_mode: AI categorization mode: rule_only, conflict_only, or conflict_and_unprocessed
     """
     search_text = (description + " " + (contractor or "")).lower()
     if categorization_rules is None:

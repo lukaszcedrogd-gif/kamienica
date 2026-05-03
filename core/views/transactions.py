@@ -60,7 +60,7 @@ def upload_csv(request):
         )
 
     context = {
-        'form': CSVUploadForm(),
+        'form': CSVUploadForm(initial={'ai_mode': 'conflict_and_unprocessed'}),
         'transactions': transactions,
         'upload_summary': request.session.pop('upload_summary', None),
         'rules_count': CategorizationRule.objects.count(),
@@ -78,9 +78,11 @@ def upload_csv(request):
         if not request.user.is_superuser:
             return HttpResponseForbidden("Nie masz uprawnień do importowania transakcji.")
         form = CSVUploadForm(request.POST, request.FILES)
+        context['form'] = form
         if form.is_valid():
             csv_file = request.FILES['csv_file']
-            summary = process_csv_file(csv_file)
+            ai_mode = form.cleaned_data.get('ai_mode', 'conflict_and_unprocessed')
+            summary = process_csv_file(csv_file, ai_mode=ai_mode)
 
             if summary.get('error'):
                 context['upload_summary'] = summary

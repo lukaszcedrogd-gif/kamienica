@@ -25,6 +25,16 @@
       <div class="col-md-4">
         <h5 class="card-title">Przychody</h5>
         <p class="card-text">Suma wpłat: <strong>{{ total_payments|floatformat:2 }} zł</strong></p>
+        {% if previous_year_initial_balance != 0 or agreement_initial_balance != 0 %}
+          <hr>
+          <p class="card-text text-muted"><small>Stan początkowy z rozliczenia roku {{ selected_year|add:'-1' }}:</small></p>
+          {% if previous_year_initial_balance != 0 %}
+            <p class="card-text"><strong>{{ previous_year_initial_balance|floatformat:2 }} zł</strong></p>
+          {% endif %}
+          {% if agreement_initial_balance != 0 %}
+            <p class="card-text text-muted"><small>+ Saldo początkowe z umowy: <strong>{{ agreement_initial_balance|floatformat:2 }} zł</strong></small></p>
+          {% endif %}
+        {% endif %}
       </div>
       <div class="col-md-4">
         <h5 class="card-title">Koszty</h5>

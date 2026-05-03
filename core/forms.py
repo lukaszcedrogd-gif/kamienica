@@ -86,4 +86,19 @@ class MeterReadingForm(forms.ModelForm):
         }
 
 class CSVUploadForm(forms.Form):
-    csv_file = forms.FileField()
+    AI_CHOICES = [
+        ('rule_only', 'Tylko reguły (bez AI)'),
+        ('conflict_only', 'AI tylko przy konfliktach'),
+        ('conflict_and_unprocessed', 'AI przy konfliktach i nieprzetworzonych'),
+    ]
+
+    csv_file = forms.FileField(
+        widget=forms.ClearableFileInput(attrs={'class': 'form-control'})
+    )
+    ai_mode = forms.ChoiceField(
+        choices=AI_CHOICES,
+        initial='conflict_and_unprocessed',
+        widget=forms.Select(attrs={'class': 'form-select'}),
+        label='Tryb AI',
+        required=False,
+    )

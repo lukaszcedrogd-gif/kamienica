@@ -1,4 +1,5 @@
 # core/services/reporting.py
+import copy
 from collections import defaultdict
 from datetime import date
 from decimal import Decimal
@@ -218,15 +219,21 @@ def get_annual_report_context(agreement, selected_year, _cache=None):
 
     # --- CARRY-OVER BALANCE ---
     previous_year_balance = Decimal("0.00")
+    previous_year_initial_balance = Decimal("0.00")
     if agreement.start_date and selected_year > agreement.start_date.year:
         prev_year_context = get_annual_report_context(
             agreement, selected_year - 1, _cache
         )
         previous_year_balance = prev_year_context.get("final_balance", Decimal("0.00"))
+        previous_year_initial_balance = previous_year_balance
 
     # --- RENT SCHEDULE CALCULATION ---
     rent_schedule = []
     total_rent = Decimal("0.00")
+    rent_schedule_map = {
+        schedule.year_month: schedule
+        for schedule in agreement.rent_schedule.filter(year_month__year=selected_year)
+    }
     month_names = [
         "Styczeń",
         "Luty",
@@ -257,21 +264,26 @@ def get_annual_report_context(agreement, selected_year, _cache=None):
         )
 
         if agreement_starts_before_month_end and agreement_ends_after_month_start:
-            date_in_month = datetime.datetime(selected_year, i, 15)
-            historical_record = (
-                agreement.history.filter(history_date__lte=date_in_month)
-                .order_by("-history_date")
-                .first()
-            )
+            month_start_date = date(selected_year, i, 1)
+            rent_schedule_entry = rent_schedule_map.get(month_start_date)
+            if rent_schedule_entry is not None:
+                monthly_rent = rent_schedule_entry.due_amount
+            else:
+                date_in_month = datetime.datetime(selected_year, i, 15)
+                historical_record = (
+                    agreement.history.filter(history_date__lte=date_in_month)
+                    .order_by("-history_date")
+                    .first()
+                )
 
-            if historical_record:
-                monthly_rent = historical_record.rent_amount
-            elif agreement.start_date <= date_in_month.date():
-                earliest_record = agreement.history.order_by("history_date").first()
-                if earliest_record:
-                    monthly_rent = earliest_record.rent_amount
-                else:
-                    monthly_rent = agreement.rent_amount
+                if historical_record:
+                    monthly_rent = historical_record.rent_amount
+                elif agreement.start_date <= date_in_month.date():
+                    earliest_record = agreement.history.order_by("history_date").first()
+                    if earliest_record:
+                        monthly_rent = earliest_record.rent_amount
+                    else:
+                        monthly_rent = agreement.rent_amount
 
         rent_schedule.append({"month_name": month_name, "rent": monthly_rent})
         total_rent += monthly_rent
@@ -323,14 +335,37 @@ def get_annual_report_context(agreement, selected_year, _cache=None):
         for i in range(1, len(readings)):
             start_reading, end_reading = readings[i - 1], readings[i]
             end_date = end_reading.reading_date
-            if end_date.year == selected_year:
-                period_key = _get_period_start(end_date)
+            period_key = _get_period_start(end_date)
 
-                if period_key.year == selected_year:
-                    consumption = end_reading.value - start_reading.value
-                    all_lokals_consumptions[period_key][meter.lokal_id] += consumption
+            if period_key.year == selected_year:
+                consumption = end_reading.value - start_reading.value
+                all_lokals_consumptions[period_key][meter.lokal_id] += consumption
+
+    def agreement_covers_period(period_start, period_end):
+        if agreement.start_date and period_end < agreement.start_date:
+            return False
+        if agreement.end_date and period_start > agreement.end_date:
+            return False
+        return True
 
     bimonthly_data = []
+    
+    # Add previous year Nov-Dec if applicable
+    if agreement.start_date and selected_year > agreement.start_date.year:
+        prev_year = selected_year - 1
+        prev_nov_start = date(prev_year, 11, 1)
+        prev_dec_end = date(prev_year, 12, 31)
+        
+        if agreement_covers_period(prev_nov_start, prev_dec_end):
+            prev_year_context = _cache.get(prev_year)
+            if prev_year_context and prev_year_context.get("bimonthly_data"):
+                for prev_period in prev_year_context["bimonthly_data"]:
+                    if "listopad-grudzień" in prev_period["name"].lower():
+                        prev_period_copy = copy.deepcopy(prev_period)
+                        prev_period_copy["source_year"] = prev_year
+                        bimonthly_data.append(prev_period_copy)
+                        break
+    
     month_start_num = 1
     for name in [
         "styczeń-luty",
@@ -341,15 +376,19 @@ def get_annual_report_context(agreement, selected_year, _cache=None):
         "listopad-grudzień",
     ]:
         period_start_date = date(selected_year, month_start_num, 1)
+        period_end_date = period_start_date + relativedelta(months=2, days=-1)
 
-        if selected_year == current_year and period_start_date > current_date:
+        if period_end_date > current_date:
             break
+        if not agreement_covers_period(period_start_date, period_end_date):
+            month_start_num += 2
+            continue
 
         bimonthly_data.append(
             {
                 "name": f"{name} {selected_year}",
                 "period_start": period_start_date,
-                "period_end": period_start_date + relativedelta(months=2, days=-1),
+                "period_end": period_end_date,
                 "waste_cost": Decimal("0.00"),
                 "water_consumption": Decimal("0.00"),
                 "water_cost": Decimal("0.00"),
@@ -362,35 +401,10 @@ def get_annual_report_context(agreement, selected_year, _cache=None):
         lokal=lokal, type__in=["hot_water", "cold_water"], status="aktywny"
     )
     for meter in lokal_meters:
-        all_readings_for_meter = list(
-            meter.readings.filter(
-                reading_date__lt=year_end + relativedelta(months=2)
-            ).order_by("reading_date")
-        )
-        last_reading_before_year = (
-            meter.readings.filter(reading_date__lt=year_start)
-            .order_by("-reading_date")
-            .first()
-        )
-        if (
-            last_reading_before_year
-            and last_reading_before_year not in all_readings_for_meter
-        ):
-            all_readings_for_meter.insert(0, last_reading_before_year)
-
-        unique_readings = sorted(
-            list({r.id: r for r in all_readings_for_meter}.values()),
-            key=lambda r: r.reading_date,
-        )
-
-        for i in range(1, len(unique_readings)):
-            start_r, end_r = unique_readings[i - 1], unique_readings[i]
+        readings = list(meter.readings.all().order_by("reading_date"))
+        for i in range(1, len(readings)):
+            start_r, end_r = readings[i - 1], readings[i]
             end_date = end_r.reading_date
-            if not (
-                year_start <= end_date < year_end + relativedelta(months=2)
-            ):
-                continue
-
             period_key = _get_period_start(end_date)
 
             if period_key.year != selected_year:
@@ -416,6 +430,12 @@ def get_annual_report_context(agreement, selected_year, _cache=None):
         total_water_consumption_year,
     ) = (Decimal("0.00"), Decimal("0.00"), Decimal("0.00"))
     for period in bimonthly_data:
+        if period.get("source_year") and period["source_year"] != selected_year:
+            total_waste_cost_year += period["waste_cost"]
+            total_water_cost_year += period["water_cost"]
+            total_water_consumption_year += period["water_consumption"]
+            continue
+
         waste_rule = (
             FixedCost.objects.filter(
                 category="waste",
@@ -467,6 +487,8 @@ def get_annual_report_context(agreement, selected_year, _cache=None):
         "total_water_consumption_year": total_water_consumption_year,
         "total_costs": total_costs,
         "final_balance": final_balance,
+        "previous_year_initial_balance": previous_year_initial_balance,
+        "agreement_initial_balance": agreement.initial_balance,
     }
     _cache[selected_year] = context
     return context

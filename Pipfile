@@ -11,6 +11,7 @@ django-simple-history = "*"
 python-dateutil = "*"
 reportlab = "*"
 python-decouple = "*"
+requests = "*"
 
 [dev-packages]
 

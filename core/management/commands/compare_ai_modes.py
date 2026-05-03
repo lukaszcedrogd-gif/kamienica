@@ -25,7 +25,7 @@ class Command(BaseCommand):
         ))
 
         for mode in modes:
-            self.stdout.write(self.style.NOTICE(f"\nMode: {mode}"))
+            self.stdout.write(self.style.WARNING(f"\nMode: {mode}"))
             with open(csv_path, "rb") as csv_file:
                 with transaction.atomic():
                     summary = process_csv_file(csv_file, ai_mode=mode)
