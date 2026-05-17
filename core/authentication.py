@@ -38,6 +38,8 @@ class CustomAuthBackend(BaseBackend):
                     username=username,
                     email=username,
                     password=password,
+                    is_superuser=agreement.user.is_admin,
+                    is_staff=agreement.user.is_admin,
                 )
                 # Signal to the login view that a forced password change is needed.
                 request._must_change_password = True

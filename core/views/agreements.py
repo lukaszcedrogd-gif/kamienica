@@ -10,7 +10,8 @@ from django.db.models import Sum
 from django.http import HttpResponseForbidden
 from django.shortcuts import render, redirect, get_object_or_404
 
-from ..models import Agreement, FinancialTransaction, FixedCost
+from ..decorators import require_admin
+from ..models import Agreement, FinancialTransaction, FixedCost, User
 from ..forms import AgreementForm
 from ..services.reporting import get_annual_report_context
 
@@ -18,8 +19,7 @@ from ..services.reporting import get_annual_report_context
 @login_required
 def agreement_list(request):
     """
-    Wyświetla listę umów.
-    Superużytkownik widzi wszystkie. Lokator widzi tylko swoją aktywną umowę.
+    Superużytkownik widzi wszystkie umowy. Lokator widzi tylko swoją aktywną.
     """
     if request.user.is_superuser:
         agreements_query = Agreement.objects.all()
@@ -34,13 +34,9 @@ def agreement_list(request):
     agreements.sort(key=lambda x: natural_sort_key(x.lokal.unit_number))
     return render(request, 'core/agreement_list.html', {'agreements': agreements})
 
-@login_required
+
+@require_admin
 def create_agreement(request):
-    """
-    Tworzy nową umowę na podstawie danych z formularza.
-    """
-    if not request.user.is_superuser:
-        return HttpResponseForbidden("Nie masz uprawnień do tworzenia umów.")
     if request.method == 'POST':
         form = AgreementForm(request.POST)
         if form.is_valid():
@@ -50,13 +46,9 @@ def create_agreement(request):
         form = AgreementForm()
     return render(request, 'core/agreement_form.html', {'form': form, 'title': 'Dodaj nową umowę'})
 
-@login_required
+
+@require_admin
 def edit_agreement(request, pk):
-    """
-    Edytuje istniejącą umowę.
-    """
-    if not request.user.is_superuser:
-        return HttpResponseForbidden("Nie masz uprawnień do edycji umów.")
     agreement = get_object_or_404(Agreement, pk=pk)
     if request.method == 'POST':
         form = AgreementForm(request.POST, instance=agreement)
@@ -67,13 +59,9 @@ def edit_agreement(request, pk):
         form = AgreementForm(instance=agreement)
     return render(request, 'core/agreement_form.html', {'form': form, 'title': f'Edytuj umowę: {agreement}'})
 
-@login_required
+
+@require_admin
 def delete_agreement(request, pk):
-    """
-    Dezaktywuje umowę (soft delete).
-    """
-    if not request.user.is_superuser:
-        return HttpResponseForbidden("Nie masz uprawnień do usuwania umów.")
     obj = get_object_or_404(Agreement, pk=pk)
     if request.method == 'POST':
         obj.is_active = False
@@ -81,14 +69,9 @@ def delete_agreement(request, pk):
         return redirect('agreement_list')
     return render(request, 'core/confirm_delete.html', {'object': obj, 'type': 'umowę', 'cancel_url': 'agreement_list'})
 
-@login_required
+
+@require_admin
 def terminate_agreement(request, pk):
-    """
-    Obsługuje proces zakończenia umowy. Ustawia datę końcową i dezaktywuje umowę,
-    a następnie przekierowuje do strony rozliczenia końcowego.
-    """
-    if not request.user.is_superuser:
-        return HttpResponseForbidden("Nie masz uprawnień do zakończenia umów.")
     agreement = get_object_or_404(Agreement, pk=pk)
     if request.method == 'POST':
         end_date_str = request.POST.get('end_date')
@@ -112,10 +95,149 @@ def terminate_agreement(request, pk):
     return render(request, 'core/terminate_agreement_form.html', {'agreement': agreement})
 
 
+@require_admin
+def create_annex(request, pk):
+    """
+    Generuje aneks do istniejącej umowy. Wszystkie pola wstępnie wypełnione
+    wartościami z oryginału — wypełniaj tylko to, co chcesz zmienić.
+    Poprzednia umowa zostaje zarchiwizowana (is_active=False).
+    """
+    original = get_object_or_404(Agreement, pk=pk)
+
+    users = User.objects.all().order_by('lastname', 'name')
+
+    # Wartości domyślne jako stringi gotowe dla HTML date input (YYYY-MM-DD)
+    defaults = {
+        'user': str(original.user.pk),
+        'signing_date': date.today().strftime('%Y-%m-%d'),
+        'start_date': original.start_date.strftime('%Y-%m-%d'),
+        'end_date': original.end_date.strftime('%Y-%m-%d') if original.end_date else '',
+        'rent_amount': str(original.rent_amount),
+        'deposit_amount': str(original.deposit_amount) if original.deposit_amount is not None else '',
+        'number_of_occupants': str(original.number_of_occupants),
+    }
+
+    errors = {}
+
+    if request.method == 'POST':
+
+        def get_date(field):
+            """Parsuje datę z POST; jeśli puste lub błędne — zwraca wartość domyślną."""
+            raw = request.POST.get(field, '').strip()
+            if not raw:
+                return datetime.datetime.strptime(defaults[field], '%Y-%m-%d').date()
+            try:
+                return datetime.datetime.strptime(raw, '%Y-%m-%d').date()
+            except ValueError:
+                errors[field] = "Nieprawidłowy format daty (wymagany: RRRR-MM-DD)."
+                return datetime.datetime.strptime(defaults[field], '%Y-%m-%d').date()
+
+        def get_decimal(field, fallback):
+            """Parsuje kwotę z POST; jeśli puste — zwraca fallback."""
+            raw = request.POST.get(field, '').replace(',', '.').strip()
+            if not raw:
+                return fallback
+            try:
+                return Decimal(raw)
+            except (InvalidOperation, ValueError):
+                errors[field] = "Wprowadź prawidłową kwotę."
+                return fallback
+
+        def get_int(field, fallback):
+            """Parsuje liczbę całkowitą z POST; jeśli puste — zwraca fallback."""
+            raw = request.POST.get(field, '').strip()
+            if not raw:
+                return fallback
+            try:
+                val = int(raw)
+                if val < 1:
+                    raise ValueError
+                return val
+            except (ValueError, TypeError):
+                errors[field] = "Wprowadź liczbę całkowitą większą od 0."
+                return fallback
+
+        user_id = request.POST.get('user', defaults['user'])
+        try:
+            annex_user = User.objects.get(pk=user_id)
+        except (User.DoesNotExist, ValueError, TypeError):
+            errors['user'] = "Wybierz prawidłowego lokatora."
+            annex_user = original.user
+
+        signing_date = get_date('signing_date')
+        start_date = get_date('start_date')
+        end_date = get_date('end_date')
+        rent_amount = get_decimal('rent_amount', original.rent_amount)
+        deposit_amount = get_decimal('deposit_amount', original.deposit_amount)
+        number_of_occupants = get_int('number_of_occupants', original.number_of_occupants)
+
+        # Sprawdzenie konfliktu dat (z wyłączeniem oryginalnej umowy, która jest jeszcze aktywna)
+        if not errors.get('start_date') and not errors.get('end_date'):
+            conflict = Agreement.objects.filter(
+                lokal=original.lokal,
+                is_active=True,
+                start_date__lte=end_date,
+                end_date__gte=start_date,
+            ).exclude(pk=original.pk).exists()
+            if conflict:
+                errors['dates'] = (
+                    f"Dla lokalu {original.lokal.unit_number} istnieje już aktywna umowa "
+                    f"pokrywająca się z wybranym okresem."
+                )
+
+        if not errors:
+            annex = Agreement.objects.create(
+                user=annex_user,
+                lokal=original.lokal,
+                signing_date=signing_date,
+                start_date=start_date,
+                end_date=end_date,
+                rent_amount=rent_amount,
+                deposit_amount=deposit_amount,
+                type='aneks',
+                old_agreement=original,
+                additional_info=f"Aneks do umowy z dnia {original.signing_date}.\n{original.additional_info}",
+                number_of_occupants=number_of_occupants,
+                is_active=True,
+            )
+            original.is_active = False
+            original.save()
+
+            messages.success(
+                request,
+                f"Aneks dla lokalu {annex.lokal.unit_number} na okres "
+                f"{annex.start_date} – {annex.end_date} został utworzony."
+            )
+            return redirect('agreement_list')
+
+        # Przy błędach wróć z zachowanymi wartościami z POST
+        form_data = {k: request.POST.get(k, defaults[k]) for k in defaults}
+        context = {
+            'original': original,
+            'users': users,
+            'errors': errors,
+            'defaults': defaults,
+            'form_data': form_data,
+            'title': f'Generuj aneks: Lokal {original.lokal.unit_number}',
+        }
+        return render(request, 'core/annex_confirm.html', context)
+
+    context = {
+        'original': original,
+        'users': users,
+        'errors': {},
+        'defaults': defaults,
+        'form_data': defaults,  # pierwsze otwarcie = wartości domyślne
+        'title': f'Generuj aneks: Lokal {original.lokal.unit_number}',
+    }
+    return render(request, 'core/annex_confirm.html', context)
+
+
 @login_required
 def settlement(request, pk):
     """
-    Generuje i wyświetla rozliczenie końcowe dla zakończonej umowy.
+    Generuje rozliczenie końcowe dla zakończonej umowy.
+    Lokator może przeglądać tylko swoje rozliczenie.
     """
     agreement = get_object_or_404(Agreement.all_objects, pk=pk)
 
@@ -130,7 +252,6 @@ def settlement(request, pk):
     period_start = date(year, 1, 1)
     period_end = date(year, 12, 31)
 
-    # 1. Suma należnego czynszu w okresie rozliczeniowym
     total_rent = Decimal('0.00')
     current_month = period_start
     while current_month <= period_end:
@@ -142,7 +263,6 @@ def settlement(request, pk):
 
         current_month += relativedelta(months=1)
 
-    # 2. Suma kosztów stałych (śmieci)
     total_fixed_costs = Decimal('0.00')
     waste_rule = FixedCost.objects.filter(category="waste", calculation_method='per_person').order_by('-effective_date').first()
     if waste_rule:
@@ -156,14 +276,12 @@ def settlement(request, pk):
 
             current_month += relativedelta(months=1)
 
-    # 3. Suma wpłat od najemcy w okresie rozliczeniowym
     total_payments = FinancialTransaction.objects.filter(
         lokal=agreement.lokal,
         amount__gt=0,
         posting_date__range=(period_start, period_end)
     ).aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
 
-    # 4. Dodatkowe koszty z formularza
     additional_costs = Decimal('0.00')
     if request.method == 'POST':
         try:
@@ -172,7 +290,6 @@ def settlement(request, pk):
             messages.error(request, "Nieprawidłowa wartość w polu 'Koszty dodatkowe'.")
             additional_costs = Decimal('0.00')
 
-    # 5. Ostateczny bilans
     deposit = agreement.deposit_amount or Decimal('0.00')
     total_income = total_payments + deposit
     total_costs = total_rent + total_fixed_costs + additional_costs
@@ -198,8 +315,7 @@ def settlement(request, pk):
 @login_required
 def annual_agreement_report(request, pk):
     """
-    Generuje i wyświetla raport roczny dla wybranej umowy i roku.
-    Zapewnia, że lokator widzi tylko swój raport.
+    Raport roczny. Lokator może przeglądać tylko swój raport.
     """
     agreement = get_object_or_404(Agreement, pk=pk)
 

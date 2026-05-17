@@ -37,6 +37,7 @@ class User(models.Model):
     email = models.EmailField("Adres e-mail", unique=True)
     phone = models.CharField("Telefon", max_length=30, blank=True)
     role = models.CharField("Rola", max_length=50, choices=ROLE_CHOICES)
+    is_admin = models.BooleanField("Administrator systemu", default=False)
     is_active = models.BooleanField("Aktywny", default=True)
 
     # Managers

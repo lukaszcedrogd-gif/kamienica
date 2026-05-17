@@ -1,4 +1,5 @@
 from django.contrib import admin, messages
+from django.contrib.auth.models import User as AuthUser
 from django.utils import timezone
 from dateutil.relativedelta import relativedelta
 from .models import (
@@ -106,7 +107,40 @@ class AgreementAdmin(admin.ModelAdmin):
         self.message_user(request, f"Pomyślnie wygenerowano aneks dla umowy lokalu {annex.lokal.unit_number}. Nowa umowa obowiązuje od {annex.start_date} do {annex.end_date}. Poprzednia umowa została zarchiwizowana.", level=messages.SUCCESS)
 
 
-admin.site.register(User)
+@admin.register(User)
+class UserAdmin(admin.ModelAdmin):
+    list_display = ('lastname', 'name', 'email', 'role', 'is_admin', 'is_active')
+    list_filter = ('role', 'is_admin', 'is_active')
+    search_fields = ('name', 'lastname', 'email')
+    list_editable = ('role', 'is_admin', 'is_active')
+    list_display_links = ('lastname',)
+    ordering = ('lastname', 'name')
+    fieldsets = (
+        ('Dane osobowe', {
+            'fields': ('name', 'lastname', 'pesel', 'passport_number', 'email', 'phone'),
+        }),
+        ('Rola i uprawnienia', {
+            'fields': ('role', 'is_admin', 'is_active'),
+            'description': (
+                'Rola określa charakter najmu. '
+                'Administrator systemu — zaznacz, aby użytkownik miał pełny dostęp do panelu zarządzania.'
+            ),
+        }),
+    )
+
+    def get_queryset(self, request):
+        return User.all_objects.all()
+
+    def save_model(self, request, obj, form, change):
+        super().save_model(request, obj, form, change)
+        try:
+            auth_user = AuthUser.objects.get(email=obj.email)
+            if auth_user.is_superuser != obj.is_admin or auth_user.is_staff != obj.is_admin:
+                auth_user.is_superuser = obj.is_admin
+                auth_user.is_staff = obj.is_admin
+                auth_user.save(update_fields=['is_superuser', 'is_staff'])
+        except AuthUser.DoesNotExist:
+            pass
 admin.site.register(Lokal)
 admin.site.register(RentSchedule)
 admin.site.register(Meter)

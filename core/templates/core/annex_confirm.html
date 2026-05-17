@@ -1,0 +1,151 @@
+{% extends "core/base.html" %}
+
+{% block title %}{{ title }}{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <h1 class="mb-4">{{ title }}</h1>
+
+    {% if messages %}
+        {% for message in messages %}
+            <div class="alert alert-{{ message.tags }}">{{ message }}</div>
+        {% endfor %}
+    {% endif %}
+
+    <div class="card shadow-sm mb-4">
+        <div class="card-header fw-bold">Archiwizowana umowa</div>
+        <div class="card-body">
+            <dl class="row mb-0">
+                <dt class="col-sm-4">Lokal</dt>
+                <dd class="col-sm-8">{{ original.lokal }}</dd>
+                <dt class="col-sm-4">Lokator</dt>
+                <dd class="col-sm-8">{{ original.user }}</dd>
+                <dt class="col-sm-4">Okres najmu</dt>
+                <dd class="col-sm-8">{{ original.start_date }} – {{ original.end_date|default:"bezterminowo" }}</dd>
+                <dt class="col-sm-4">Czynsz</dt>
+                <dd class="col-sm-8">{{ original.rent_amount }} PLN</dd>
+                <dt class="col-sm-4">Kaucja</dt>
+                <dd class="col-sm-8">{{ original.deposit_amount|default:"—" }}{% if original.deposit_amount %} PLN{% endif %}</dd>
+                <dt class="col-sm-4">Liczba osób</dt>
+                <dd class="col-sm-8">{{ original.number_of_occupants }}</dd>
+            </dl>
+        </div>
+    </div>
+
+    <div class="card shadow-sm mb-4">
+        <div class="card-header fw-bold">
+            Dane nowego aneksu
+            <small class="text-primary ms-2 fw-normal">— zmienione pola są zaznaczone na niebiesko</small>
+        </div>
+        <div class="card-body">
+            {% if errors.dates %}
+                <div class="alert alert-danger">{{ errors.dates }}</div>
+            {% endif %}
+
+            <form method="post" id="annexForm">
+                {% csrf_token %}
+
+                {# Lokator #}
+                <div class="row">
+                    <div class="col-md-6 mb-3">
+                        <label for="user" class="form-label fw-bold">Lokator</label>
+                        <select id="user" name="user"
+                                class="form-select {% if errors.user %}is-invalid{% endif %}"
+                                data-original="{{ defaults.user }}">
+                            {% for u in users %}
+                                <option value="{{ u.pk }}"
+                                    {% if form_data.user == u.pk|stringformat:"s" %}selected{% endif %}>
+                                    {{ u.lastname }} {{ u.name }}
+                                </option>
+                            {% endfor %}
+                        </select>
+                        {% if errors.user %}<div class="invalid-feedback">{{ errors.user }}</div>{% endif %}
+                    </div>
+                </div>
+
+                {# Daty #}
+                <div class="row">
+                    <div class="col-md-4 mb-3">
+                        <label for="signing_date" class="form-label fw-bold">Data zawarcia aneksu</label>
+                        <input type="date" id="signing_date" name="signing_date"
+                               class="form-control {% if errors.signing_date %}is-invalid{% endif %}"
+                               data-original="{{ defaults.signing_date }}"
+                               value="{{ form_data.signing_date }}">
+                        {% if errors.signing_date %}<div class="invalid-feedback">{{ errors.signing_date }}</div>{% endif %}
+                    </div>
+                    <div class="col-md-4 mb-3">
+                        <label for="start_date" class="form-label fw-bold">Data rozpoczęcia najmu</label>
+                        <input type="date" id="start_date" name="start_date"
+                               class="form-control {% if errors.start_date %}is-invalid{% endif %}"
+                               data-original="{{ defaults.start_date }}"
+                               value="{{ form_data.start_date }}">
+                        {% if errors.start_date %}<div class="invalid-feedback">{{ errors.start_date }}</div>{% endif %}
+                    </div>
+                    <div class="col-md-4 mb-3">
+                        <label for="end_date" class="form-label fw-bold">Data zakończenia najmu</label>
+                        <input type="date" id="end_date" name="end_date"
+                               class="form-control {% if errors.end_date %}is-invalid{% endif %}"
+                               data-original="{{ defaults.end_date }}"
+                               value="{{ form_data.end_date }}">
+                        {% if errors.end_date %}<div class="invalid-feedback">{{ errors.end_date }}</div>{% endif %}
+                    </div>
+                </div>
+
+                {# Finanse i osoby #}
+                <div class="row">
+                    <div class="col-md-4 mb-3">
+                        <label for="rent_amount" class="form-label fw-bold">Kwota czynszu (PLN)</label>
+                        <input type="number" step="0.01" id="rent_amount" name="rent_amount"
+                               class="form-control {% if errors.rent_amount %}is-invalid{% endif %}"
+                               data-original="{{ defaults.rent_amount }}"
+                               value="{{ form_data.rent_amount }}">
+                        {% if errors.rent_amount %}<div class="invalid-feedback">{{ errors.rent_amount }}</div>{% endif %}
+                    </div>
+                    <div class="col-md-4 mb-3">
+                        <label for="deposit_amount" class="form-label fw-bold">Kwota kaucji (PLN)</label>
+                        <input type="number" step="0.01" id="deposit_amount" name="deposit_amount"
+                               class="form-control {% if errors.deposit_amount %}is-invalid{% endif %}"
+                               data-original="{{ defaults.deposit_amount }}"
+                               value="{{ form_data.deposit_amount }}">
+                        {% if errors.deposit_amount %}<div class="invalid-feedback">{{ errors.deposit_amount }}</div>{% endif %}
+                    </div>
+                    <div class="col-md-4 mb-3">
+                        <label for="number_of_occupants" class="form-label fw-bold">Liczba osób zamieszkujących</label>
+                        <input type="number" min="1" id="number_of_occupants" name="number_of_occupants"
+                               class="form-control {% if errors.number_of_occupants %}is-invalid{% endif %}"
+                               data-original="{{ defaults.number_of_occupants }}"
+                               value="{{ form_data.number_of_occupants }}">
+                        {% if errors.number_of_occupants %}<div class="invalid-feedback">{{ errors.number_of_occupants }}</div>{% endif %}
+                    </div>
+                </div>
+
+                <div class="alert alert-warning mt-2">
+                    Po zatwierdzeniu poprzednia umowa zostanie <strong>zarchiwizowana</strong>
+                    i nie będzie widoczna na liście aktywnych umów.
+                </div>
+
+                <button type="submit" class="btn btn-primary">Utwórz aneks</button>
+                <a href="{% url 'agreement_list' %}" class="btn btn-secondary ms-2">Anuluj</a>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+(function () {
+    function applyChangeStyle(el) {
+        var original = el.dataset.original !== undefined ? el.dataset.original : '';
+        var current = el.value !== undefined ? el.value : '';
+        var changed = current !== original;
+        el.style.color = changed ? '#0d6efd' : '';
+        el.style.fontWeight = changed ? '600' : '';
+    }
+
+    document.querySelectorAll('#annexForm [data-original]').forEach(function (el) {
+        applyChangeStyle(el);
+        el.addEventListener('input', function () { applyChangeStyle(el); });
+        el.addEventListener('change', function () { applyChangeStyle(el); });
+    });
+})();
+</script>
+{% endblock %}

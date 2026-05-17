@@ -5,7 +5,9 @@
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-4">
     <h1>Lista Umów</h1>
-    <a href="{% url 'agreement-add' %}" class="btn btn-primary">Dodaj nową umowę</a>
+    {% if request.user.is_superuser %}
+        <a href="{% url 'agreement-add' %}" class="btn btn-primary">Dodaj nową umowę</a>
+    {% endif %}
 </div>
 
 {% if messages %}
@@ -35,14 +37,19 @@
                     <td>{{ agreement.end_date|default:"Brak" }}</td>
                     <td>{{ agreement.rent_amount }} PLN</td>
                     <td>
-                        <a href="{% url 'agreement-edit' agreement.pk %}" class="btn btn-sm btn-outline-primary">Edytuj</a>
-                        <a href="{% url 'terminate_agreement' agreement.pk %}" class="btn btn-sm btn-outline-secondary">Zakończ</a>
-                        <a href="{% url 'settlement' agreement.pk %}" class="btn btn-sm btn-info">Rozliczenie</a>
+                        {% if request.user.is_superuser %}
+                            <a href="{% url 'agreement-edit' agreement.pk %}" class="btn btn-sm btn-outline-primary">Edytuj</a>
+                            <a href="{% url 'agreement-annex' agreement.pk %}" class="btn btn-sm btn-outline-info">Aneks</a>
+                            <a href="{% url 'terminate_agreement' agreement.pk %}" class="btn btn-sm btn-outline-secondary">Zakończ</a>
+                            <a href="{% url 'settlement' agreement.pk %}" class="btn btn-sm btn-info">Rozliczenie</a>
+                        {% endif %}
                         <a href="{% url 'annual_agreement_report' pk=agreement.pk %}" class="btn btn-sm btn-success">Raport Roczny</a>
-                        <form method="post" action="{% url 'agreement-delete' agreement.pk %}" style="display:inline;" onsubmit="return confirm('Czy na pewno chcesz usunąć tę umowę?');">
-                            {% csrf_token %}
-                            <button type="submit" class="btn btn-sm btn-outline-danger">Usuń</button>
-                        </form>
+                        {% if request.user.is_superuser %}
+                            <form method="post" action="{% url 'agreement-delete' agreement.pk %}" style="display:inline;" onsubmit="return confirm('Czy na pewno chcesz usunąć tę umowę?');">
+                                {% csrf_token %}
+                                <button type="submit" class="btn btn-sm btn-outline-danger">Usuń</button>
+                            </form>
+                        {% endif %}
                     </td>
                 </tr>
             {% empty %}

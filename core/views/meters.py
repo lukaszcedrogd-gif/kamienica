@@ -1,20 +1,12 @@
-from django.contrib import messages
-from django.contrib.auth.decorators import login_required
-from django.http import HttpResponseForbidden
 from django.shortcuts import render, redirect, get_object_or_404
 
+from ..decorators import require_admin
 from ..models import Lokal, Meter, MeterReading
 from ..forms import MeterReadingForm
 
 
-@login_required
+@require_admin
 def meter_readings_view(request):
-    """
-    Wyświetla formularz do wprowadzania odczytów liczników dla wszystkich lokali
-    i przetwarza dane z tego formularza.
-    """
-    if not request.user.is_superuser:
-        return HttpResponseForbidden("Nie masz uprawnień do wprowadzania odczytów liczników.")
     lokale = Lokal.objects.prefetch_related('meters__readings').all()
 
     if request.method == 'POST':
@@ -29,17 +21,11 @@ def meter_readings_view(request):
                     )
         return redirect('meter_readings')
 
-    context = {'lokale': lokale}
-    return render(request, 'core/meter_readings.html', context)
+    return render(request, 'core/meter_readings.html', {'lokale': lokale})
 
 
-@login_required
+@require_admin
 def add_meter_reading(request, meter_id):
-    """
-    Dodaje nowy odczyt dla konkretnego licznika.
-    """
-    if not request.user.is_superuser:
-        return HttpResponseForbidden("Nie masz uprawnień do dodawania odczytów liczników.")
     meter = get_object_or_404(Meter, pk=meter_id)
     if request.method == 'POST':
         form = MeterReadingForm(request.POST)
@@ -57,21 +43,14 @@ def add_meter_reading(request, meter_id):
     })
 
 
-@login_required
+@require_admin
 def meter_consumption_report(request):
-    """
-    Generuje raport zużycia mediów na podstawie dwóch ostatnich odczytów
-    dla każdego aktywnego licznika przypisanego do lokalu.
-    """
     meters = Meter.objects.select_related('lokal').prefetch_related('readings').filter(status='aktywny', lokal__isnull=False)
     consumption_data = []
 
     for meter in meters:
         readings = meter.readings.all()[:2]
-
-        consumption = None
-        latest_reading = None
-        previous_reading = None
+        latest_reading = previous_reading = consumption = None
 
         if len(readings) == 2:
             latest_reading = readings[0]
@@ -87,8 +66,7 @@ def meter_consumption_report(request):
             'consumption': consumption,
         })
 
-    context = {
+    return render(request, 'core/meter_consumption_report.html', {
         'consumption_data': consumption_data,
-        'title': 'Raport Zużycia Mediów'
-    }
-    return render(request, 'core/meter_consumption_report.html', context)
+        'title': 'Raport Zużycia Mediów',
+    })

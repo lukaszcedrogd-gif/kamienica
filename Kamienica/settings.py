@@ -42,6 +42,7 @@ INSTALLED_APPS = [
     'Kamienica',
     'core.apps.CoreConfig',
     'simple_history',
+    'anymail',
 ]
 
 MIDDLEWARE = [
@@ -137,8 +138,16 @@ LOGIN_REDIRECT_URL = '/'
 LOGOUT_REDIRECT_URL = '/'
 
 # --- Email ---
-EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
-DEFAULT_FROM_EMAIL = 'Kamienica <noreply@kamienica.local>'
+# Bez konfiguracji .env maile lądują w terminalu (tryb dev).
+# Żeby wysyłać prawdziwe maile przez Resend, dodaj do .env:
+#   EMAIL_BACKEND=anymail.backends.resend.EmailBackend
+#   RESEND_API_KEY=re_xxxxxxxxxxxxxxxxxxxx
+#   DEFAULT_FROM_EMAIL=Kamienica <onboarding@resend.dev>
+EMAIL_BACKEND = config('EMAIL_BACKEND', default='django.core.mail.backends.console.EmailBackend')
+DEFAULT_FROM_EMAIL = config('DEFAULT_FROM_EMAIL', default='Kamienica <noreply@kamienica.local>')
+ANYMAIL = {
+    'RESEND_API_KEY': config('RESEND_API_KEY', default=''),
+}
 
 # --- Session & Cookie Security ---
 SESSION_COOKIE_HTTPONLY = True   # ciasteczko sesji niedostępne przez JavaScript

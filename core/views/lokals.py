@@ -3,6 +3,7 @@ from django.contrib.auth.decorators import login_required
 from django.http import HttpResponseForbidden
 from django.shortcuts import render, redirect, get_object_or_404
 
+from ..decorators import require_admin
 from ..models import Agreement, Lokal, Meter
 from ..forms import LokalForm
 
@@ -10,8 +11,7 @@ from ..forms import LokalForm
 @login_required
 def lokal_list(request):
     """
-    Wyświetla listę lokali.
-    Superużytkownik widzi wszystkie. Zwykły użytkownik (lokator) widzi tylko swój lokal.
+    Superużytkownik widzi wszystkie lokale. Lokator widzi tylko swój.
     """
     if request.user.is_superuser:
         lokale = Lokal.objects.all()
@@ -24,10 +24,10 @@ def lokal_list(request):
 
     return render(request, 'core/lokal_list.html', {'lokale': lokale})
 
+
 @login_required
 def lokal_detail(request, pk):
     """
-    Wyświetla szczegóły konkretnego lokalu.
     Superużytkownik może zobaczyć każdy lokal. Lokator tylko swój.
     """
     lokal = get_object_or_404(Lokal, pk=pk)
@@ -41,19 +41,11 @@ def lokal_detail(request, pk):
             return HttpResponseForbidden("Nie masz przypisanej żadnej aktywnej umowy.")
 
     meters = lokal.meters.prefetch_related('readings').filter(status='aktywny')
-    context = {
-        'lokal': lokal,
-        'meters': meters,
-    }
-    return render(request, 'core/lokal_detail.html', context)
+    return render(request, 'core/lokal_detail.html', {'lokal': lokal, 'meters': meters})
 
-@login_required
+
+@require_admin
 def create_lokal(request):
-    """
-    Tworzy nowy lokal i obsługuje przypisywanie do niego liczników.
-    """
-    if not request.user.is_superuser:
-        return HttpResponseForbidden("Nie masz uprawnień do tworzenia lokali.")
     if request.method == 'POST':
         form = LokalForm(request.POST)
         if form.is_valid():
@@ -61,8 +53,7 @@ def create_lokal(request):
 
             meter_ids = request.POST.getlist('meters')
             if meter_ids:
-                meters_to_assign = Meter.objects.filter(id__in=meter_ids)
-                for meter in meters_to_assign:
+                for meter in Meter.objects.filter(id__in=meter_ids):
                     meter.lokal = lokal
                     meter.save()
 
@@ -71,23 +62,16 @@ def create_lokal(request):
     else:
         form = LokalForm()
 
-    unassigned_meters = Meter.objects.filter(lokal__isnull=True, status='aktywny')
-
-    context = {
+    return render(request, 'core/lokal_form.html', {
         'form': form,
         'title': 'Dodaj nowy lokal',
-        'unassigned_meters': unassigned_meters,
+        'unassigned_meters': Meter.objects.filter(lokal__isnull=True, status='aktywny'),
         'assigned_meters': [],
-    }
-    return render(request, 'core/lokal_form.html', context)
+    })
 
-@login_required
+
+@require_admin
 def edit_lokal(request, pk):
-    """
-    Edytuje istniejący lokal, w tym zarządza przypisaniem i odpinaniem liczników.
-    """
-    if not request.user.is_superuser:
-        return HttpResponseForbidden("Nie masz uprawnień do edycji lokali.")
     lokal = get_object_or_404(Lokal, pk=pk)
 
     if request.method == 'POST':
@@ -96,41 +80,28 @@ def edit_lokal(request, pk):
             lokal = form.save()
 
             meter_ids = request.POST.getlist('meters')
-
-            meters_to_detach = Meter.objects.filter(lokal=lokal).exclude(id__in=meter_ids)
-            for meter in meters_to_detach:
+            for meter in Meter.objects.filter(lokal=lokal).exclude(id__in=meter_ids):
                 meter.lokal = None
                 meter.save()
-
-            if meter_ids:
-                meters_to_assign = Meter.objects.filter(id__in=meter_ids)
-                for meter in meters_to_assign:
-                    meter.lokal = lokal
-                    meter.save()
+            for meter in Meter.objects.filter(id__in=meter_ids):
+                meter.lokal = lokal
+                meter.save()
 
             messages.success(request, f'Lokal {lokal.unit_number} został zaktualizowany.')
             return redirect('lokal_list')
     else:
         form = LokalForm(instance=lokal)
 
-    assigned_meters = Meter.objects.filter(lokal=lokal)
-    unassigned_meters = Meter.objects.filter(lokal__isnull=True, status='aktywny')
-
-    context = {
+    return render(request, 'core/lokal_form.html', {
         'form': form,
         'title': f'Edycja lokalu {lokal.unit_number}',
-        'assigned_meters': assigned_meters,
-        'unassigned_meters': unassigned_meters,
-    }
-    return render(request, 'core/lokal_form.html', context)
+        'assigned_meters': Meter.objects.filter(lokal=lokal),
+        'unassigned_meters': Meter.objects.filter(lokal__isnull=True, status='aktywny'),
+    })
 
-@login_required
+
+@require_admin
 def delete_lokal(request, pk):
-    """
-    Dezaktywuje lokal (soft delete).
-    """
-    if not request.user.is_superuser:
-        return HttpResponseForbidden("Nie masz uprawnień do usuwania lokali.")
     obj = get_object_or_404(Lokal, pk=pk)
     if request.method == 'POST':
         obj.is_active = False

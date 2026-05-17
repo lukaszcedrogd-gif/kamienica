@@ -44,6 +44,7 @@ urlpatterns = [
     path('user/add/', users.create_user, name='user-add'),
     path('user/<int:pk>/edit/', users.edit_user, name='user-edit'),
     path('user/<int:pk>/delete/', users.delete_user, name='user-delete'),
+    path('user/<int:pk>/send-setup-email/', users.send_setup_email, name='user-send-setup-email'),
 
     # Lokal URLs
     path('lokal/add/', lokals.create_lokal, name='lokal-add'),
@@ -57,6 +58,7 @@ urlpatterns = [
     path('agreement/<int:pk>/edit/', agreements.edit_agreement, name='agreement-edit'),
     path('agreement/<int:pk>/delete/', agreements.delete_agreement, name='agreement-delete'),
     path('agreement/<int:pk>/terminate/', agreements.terminate_agreement, name='terminate_agreement'),
+    path('agreement/<int:pk>/annex/', agreements.create_annex, name='agreement-annex'),
     path('agreement/<int:pk>/settlement/', agreements.settlement, name='settlement'),
     path('agreement/<int:pk>/annual_report/', agreements.annual_agreement_report, name='annual_agreement_report'),
     path('agreement/<int:pk>/annual_report/pdf/', reports.annual_report_pdf, name='annual_report_pdf'),

@@ -1,5 +1,4 @@
 # core/services/reporting.py
-import copy
 from collections import defaultdict
 from datetime import date
 from decimal import Decimal
@@ -294,7 +293,7 @@ def get_annual_report_context(agreement, selected_year, _cache=None):
     ).order_by("posting_date")
 
     cumulative_payments = []
-    running_total = previous_year_balance  # Start with the balance from the previous year
+    running_total = previous_year_balance
 
     if previous_year_balance != Decimal("0.00"):
         cumulative_payments.append(
@@ -303,6 +302,24 @@ def get_annual_report_context(agreement, selected_year, _cache=None):
                 "amount": previous_year_balance,
                 "running_total": running_total,
                 "description": f"Bilans z roku {selected_year - 1}",
+            }
+        )
+
+    initial_balance_year = None
+    if agreement.balance_start_date:
+        initial_balance_year = agreement.balance_start_date.year
+    elif agreement.start_date:
+        initial_balance_year = agreement.start_date.year
+
+    if initial_balance_year == selected_year and agreement.initial_balance:
+        running_total += agreement.initial_balance
+        initial_balance_date = agreement.balance_start_date or agreement.start_date
+        cumulative_payments.append(
+            {
+                "date": initial_balance_date,
+                "amount": agreement.initial_balance,
+                "running_total": running_total,
+                "description": "Saldo początkowe z umowy",
             }
         )
 
@@ -349,23 +366,7 @@ def get_annual_report_context(agreement, selected_year, _cache=None):
         return True
 
     bimonthly_data = []
-    
-    # Add previous year Nov-Dec if applicable
-    if agreement.start_date and selected_year > agreement.start_date.year:
-        prev_year = selected_year - 1
-        prev_nov_start = date(prev_year, 11, 1)
-        prev_dec_end = date(prev_year, 12, 31)
-        
-        if agreement_covers_period(prev_nov_start, prev_dec_end):
-            prev_year_context = _cache.get(prev_year)
-            if prev_year_context and prev_year_context.get("bimonthly_data"):
-                for prev_period in prev_year_context["bimonthly_data"]:
-                    if "listopad-grudzień" in prev_period["name"].lower():
-                        prev_period_copy = copy.deepcopy(prev_period)
-                        prev_period_copy["source_year"] = prev_year
-                        bimonthly_data.append(prev_period_copy)
-                        break
-    
+
     month_start_num = 1
     for name in [
         "styczeń-luty",
@@ -430,12 +431,6 @@ def get_annual_report_context(agreement, selected_year, _cache=None):
         total_water_consumption_year,
     ) = (Decimal("0.00"), Decimal("0.00"), Decimal("0.00"))
     for period in bimonthly_data:
-        if period.get("source_year") and period["source_year"] != selected_year:
-            total_waste_cost_year += period["waste_cost"]
-            total_water_cost_year += period["water_cost"]
-            total_water_consumption_year += period["water_consumption"]
-            continue
-
         waste_rule = (
             FixedCost.objects.filter(
                 category="waste",
@@ -488,7 +483,7 @@ def get_annual_report_context(agreement, selected_year, _cache=None):
         "total_costs": total_costs,
         "final_balance": final_balance,
         "previous_year_initial_balance": previous_year_initial_balance,
-        "agreement_initial_balance": agreement.initial_balance,
+        "agreement_initial_balance": agreement.initial_balance if initial_balance_year == selected_year else Decimal("0.00"),
     }
     _cache[selected_year] = context
     return context

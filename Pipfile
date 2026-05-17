@@ -12,6 +12,7 @@ python-dateutil = "*"
 reportlab = "*"
 python-decouple = "*"
 requests = "*"
+django-anymail = {extras = ["resend"], version = "*"}
 
 [dev-packages]
 

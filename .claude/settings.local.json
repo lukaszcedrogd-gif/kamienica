@@ -3,7 +3,17 @@
     "allow": [
       "Bash(python -c \"from core.views import auth, users, lokals, agreements, meters, transactions, rules, reports; print\\(''Import OK''\\)\")",
       "Bash(python manage.py check)",
-      "Bash(python manage.py shell -c \":*)"
+      "Bash(python manage.py shell -c \":*)",
+      "Bash(Get-ChildItem -Path \"c:\\\\Users\\\\Zolw\\\\ProjektVB\\\\kamienica\" -Recurse -Directory)",
+      "Bash(Select-Object -ExpandProperty FullName)",
+      "PowerShell(head -30)",
+      "Bash(python manage.py migrate core 0027)",
+      "Bash(pipenv install *)",
+      "Bash(pip install *)",
+      "Bash(pipenv run *)",
+      "Bash(C:\\\\Users\\\\Zolw\\\\.virtualenvs\\\\kamienica-JnceXuYM\\\\Scripts\\\\pip.exe install *)",
+      "PowerShell(& \"C:\\\\Users\\\\Zolw\\\\.virtualenvs\\\\kamienica-JnceXuYM\\\\Scripts\\\\pip.exe\" install \"django-anymail[resend]\")",
+      "PowerShell(& \"C:\\\\Users\\\\Zolw\\\\.virtualenvs\\\\kamienica-JnceXuYM\\\\Scripts\\\\python.exe\" manage.py check 2>&1)"
     ]
   }
 }

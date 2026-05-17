@@ -11,13 +11,14 @@ class UserForm(forms.ModelForm):
 
     class Meta:
         model = User
-        fields = ['name', 'lastname', 'pesel', 'email', 'phone', 'role']
+        fields = ['name', 'lastname', 'pesel', 'email', 'phone', 'role', 'is_admin']
         widgets = {
             'name': forms.TextInput(attrs={'class': 'form-control'}),
             'lastname': forms.TextInput(attrs={'class': 'form-control'}),
             'pesel': forms.TextInput(attrs={'class': 'form-control'}),
             'phone': forms.TextInput(attrs={'class': 'form-control'}),
             'role': forms.Select(attrs={'class': 'form-control'}),
+            'is_admin': forms.CheckboxInput(attrs={'class': 'form-check-input'}),
         }
 
     def clean_name(self):
@@ -31,6 +32,26 @@ class UserForm(forms.ModelForm):
         if lastname:
             return lastname.title()
         return lastname
+
+    def clean_email(self):
+        email = self.cleaned_data.get('email')
+        if email:
+            qs = User.all_objects.filter(email__iexact=email)
+            if self.instance.pk:
+                qs = qs.exclude(pk=self.instance.pk)
+            if qs.exists():
+                raise ValidationError("Użytkownik z tym adresem e-mail już istnieje w systemie.")
+        return email
+
+    def clean_pesel(self):
+        pesel = self.cleaned_data.get('pesel')
+        if pesel:
+            qs = User.all_objects.filter(pesel=pesel)
+            if self.instance.pk:
+                qs = qs.exclude(pk=self.instance.pk)
+            if qs.exists():
+                raise ValidationError("Użytkownik z tym numerem PESEL już istnieje w systemie.")
+        return pesel
 
     def clean_phone(self):
         phone = self.cleaned_data.get('phone')

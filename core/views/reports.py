@@ -10,6 +10,8 @@ from django.contrib.auth.decorators import login_required
 from django.http import FileResponse, HttpResponseForbidden
 from django.shortcuts import render, redirect, get_object_or_404
 
+from ..decorators import require_admin
+
 from ..models import (
     BUILDING_LOKAL_NUMBER,
     Agreement,
@@ -120,13 +122,11 @@ def bimonthly_report_view(request, pk):
     return render(request, 'core/bimonthly_report.html', context)
 
 
-@login_required
+@require_admin
 def water_cost_summary_view(request):
     """
-    Panel do zarządzania kosztami wody. Dostępny tylko dla superużytkownika.
+    Panel do zarządzania kosztami wody. Dostępny tylko dla administratora.
     """
-    if not request.user.is_superuser:
-        return HttpResponseForbidden("Nie masz uprawnień do zarządzania kosztami wody.")
 
     if request.method == 'POST':
         num_periods = int(request.POST.get('num_periods', 0))
